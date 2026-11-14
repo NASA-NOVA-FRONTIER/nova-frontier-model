@@ -102,7 +102,7 @@ def parse_request(body):
             raise ValueError("baseline_end_date requires a lens or Feature Lab and must be within the window before the target.")
     return ExploreRequest(
         float(body["longitude"]), float(body["latitude"]), body["start_date"], body["end_date"],
-        series_key, max_dates, compare_dates, lens, optical, baseline_end, feature_lab,
+        series_key, max_dates, compare_dates, lens, optical, baseline_end, feature_lab=feature_lab,
     )
 
 
