@@ -1,0 +1,8 @@
+{
+  "release": "fixtures",
+  "url": "https://github.com/NASA-NOVA-FRONTIER/nova-frontier-model/releases/download/fixtures/nisar-science-teammate-handoff.zip",
+  "bytes": 53432472,
+  "sha256": "aefde8b9fe49bcf7061126808c3a3322e0f220c0a90bb9080206dc3026f028e0",
+  "measured_fixture_files": 77,
+  "fixtures": "Earlier measured inputs, five new 40 m scene cubes with independent optical evidence, a new three-pair InSAR candidate and frozen evaluation inputs"
+}
