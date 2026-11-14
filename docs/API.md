@@ -163,6 +163,14 @@ and the display shows power relative to the peak, clipped below −45 dB. Flat o
 images omit the figure. The temporal `spectral.png` and `spectral_series` describe candidate
 periods in days and retain their separate temporal support gates.
 
+## Earthquake lens
+
+Use GUNW coverage to select a measured pair whose two acquisitions straddle the independently supplied event time. Submit its catalog ID to the existing `insar-pair` operation. The job's `science.lens` reports the two acquisition dates, coherence histogram, usable wrapped-phase counts and the threshold. Coherence uses a 0–1 scale and wrapped phase uses a cyclic −π to π radian scale. The `display_wrapped_phase_support` layer marks cells where wrapped phase is usable. A zero means focused coherence exists but wrapped phase failed the support rule. Transparent cells lack focused coherence.
+
+Use `insar-stack` for same-series intervals and `insar-readiness` for correction input eligibility. `science.lens.intervals` retains each source ID, dates and baseline duration. On a readiness job, `science.lens.readiness` lists eligible cells, the fraction of common phase support, and the remaining gates. The common phase mask and `display_common_correction_input_eligible` are separate layers. Readiness keeps `los_displacement_cm` null until correction and an independent stable reference can be validated. A pair that spans an event date measures the full interval, and any coherence contrast can also reflect interval length, moisture or scattering changes. [NISAR GUNW product guide](https://nisar-docs.asf.alaska.edu/gunw/)
+
+The prepared Kumamoto manifest exposes the same summary in `evidence.lens` and includes its correction-input layer. Its pair intervals serve as a reference for rendering and quality checks.
+
 ## Frontend mapping
 
 | Draft field or copy | v2 rendering |
