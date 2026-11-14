@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NISAR measured event catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "science_version",
+    "science_code_sha",
+    "build_revision",
+    "model",
+    "tour_order",
+    "events"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "science_version": {
+      "type": "string"
+    },
+    "science_code_sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "build_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{24}$"
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "transformer",
+        "dmd",
+        "used_for_event_readouts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "transformer": {
+          "type": "string"
+        },
+        "dmd": {
+          "type": "string"
+        },
+        "used_for_event_readouts": {
+          "const": false
+        }
+      }
+    },
+    "tour_order": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "bounds": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "pair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number"
+      }
+    },
+    "grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "crs",
+        "bounds",
+        "shape",
+        "posting_m",
+        "north_up"
+      ],
+      "properties": {
+        "crs": {
+          "type": "string",
+          "pattern": "^EPSG:[0-9]+$"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "posting_m": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "north_up": {
+          "const": true
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "required": [
+        "id",
+        "png_url",
+        "cog_url",
+        "bounds",
+        "crs",
+        "colormap",
+        "units",
+        "range"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "png_url": {
+          "type": "string",
+          "pattern": "^/v2/cases/"
+        },
+        "cog_url": {
+          "type": "string",
+          "pattern": "^/v2/cases/"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "crs": {
+          "const": "EPSG:4326"
+        },
+        "colormap": {
+          "type": "string"
+        },
+        "units": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/pair"
+        }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "cache_key",
+        "job_id",
+        "request",
+        "canonical_request",
+        "revision",
+        "result_path",
+        "result_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "cache_key": {
+          "$ref": "#/$defs/hash"
+        },
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "operation",
+            "longitude",
+            "latitude",
+            "start_date",
+            "end_date",
+            "window_pixels",
+            "scenes"
+          ]
+        },
+        "canonical_request": {
+          "type": "object",
+          "required": [
+            "operation",
+            "longitude",
+            "latitude",
+            "start_date",
+            "end_date",
+            "product",
+            "window_pixels",
+            "scenes"
+          ]
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{24}$"
+        },
+        "result_path": {
+          "type": "string",
+          "pattern": "^jobs/[a-f0-9]{32}/manifest\\.json$"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "point",
+        "role",
+        "lens",
+        "teaches",
+        "grid",
+        "bounds_wgs84",
+        "status",
+        "coverage",
+        "evidence_state",
+        "dates",
+        "null_fields",
+        "manifest_url",
+        "series_url",
+        "bundle_url",
+        "bundle_sha256",
+        "layers",
+        "visualizations",
+        "readouts",
+        "series_kind",
+        "replay"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string"
+        },
+        "point": {
+          "$ref": "#/$defs/pair"
+        },
+        "role": {
+          "enum": [
+            "training-region for the Transformer",
+            "development case",
+            "held-out test",
+            "fresh evaluation",
+            "stable control"
+          ]
+        },
+        "lens": {
+          "enum": [
+            "flood_wetland",
+            "insar",
+            "agriculture",
+            "wildfire",
+            "vegetation_disturbance"
+          ]
+        },
+        "teaches": {
+          "type": "string"
+        },
+        "grid": {
+          "$ref": "#/$defs/grid"
+        },
+        "bounds_wgs84": {
+          "$ref": "#/$defs/bounds"
+        },
+        "status": {
+          "type": "string"
+        },
+        "coverage": {
+          "type": "object",
+          "required": [
+            "state",
+            "denominator",
+            "total_cells",
+            "population"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "denominator": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_cells": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "population": {
+              "type": "string"
+            }
+          }
+        },
+        "evidence_state": {
+          "type": "string"
+        },
+        "dates": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "null_fields": {
+          "type": "object",
+          "required": [
+            "forecast",
+            "phenomenon_classification",
+            "probability",
+            "causal_attribution",
+            "los_displacement_cm",
+            "observation_noise_db",
+            "model_uncertainty_db"
+          ],
+          "additionalProperties": {
+            "type": "null"
+          }
+        },
+        "manifest_url": {
+          "type": "string",
+          "pattern": "^/v2/cases/"
+        },
+        "series_url": {
+          "type": "string",
+          "pattern": "^/v2/cases/"
+        },
+        "bundle_url": {
+          "type": "string",
+          "pattern": "^/v2/events/"
+        },
+        "bundle_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/layer"
+          }
+        },
+        "visualizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "dates",
+              "png_url",
+              "cog_url",
+              "bounds",
+              "grid",
+              "components"
+            ]
+          }
+        },
+        "readouts": {
+          "const": [
+            "point_readout",
+            "area_readout"
+          ]
+        },
+        "series_kind": {
+          "enum": [
+            "measured_gamma0",
+            "interferometric_intervals"
+          ]
+        },
+        "replay": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/replay"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

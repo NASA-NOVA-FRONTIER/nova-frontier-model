@@ -11,6 +11,7 @@ The API serves provisional or beta NISAR L-band observations and descriptive sci
 | GET /v2/openapi.json | Generated OpenAPI with JSON Schema components from the Pydantic models |
 | GET /v2/coverage | Public CMR footprint records grouped by compatible series, with exact acquisition dates and granule titles |
 | GET /v2/cases | Precomputed case index with query points, north-up native CRS, pixel-edge bounds, shape [height,width], and measured dates |
+| GET /v2/events.index.json, /v2/events/{case_id}/bundle.json, /v2/events/checksums.json | Curated tour order, pinned replay requests, measured-data provenance and release hashes when the event release is enabled |
 | GET /v2/cases/{case_id} | Manifest for a case listed in the deployed index |
 | GET /v2/cases/{case_id}/series | Observation and group trajectories, optional diagnostic-band timeline, or GUNW pair intervals |
 | GET /v2/cases/{case_id}/layers/{name} | Published PNG, native COG, measured arrays or CSV |

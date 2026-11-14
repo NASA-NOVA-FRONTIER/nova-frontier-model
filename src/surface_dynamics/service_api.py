@@ -121,8 +121,13 @@ def artifact_response(body, asset, request):
 
 
 def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str | None = None,
-               git_sha: str | None = None, cases_path: str = "cases"):
+               git_sha: str | None = None, cases_path: str = "cases", events=None):
     results = Results(root, reload)
+    curated = Results(events.root, lambda: None) if events is not None else results
+
+    def case_file(name):
+        return name if events is not None else f"{cases_path}/{name}"
+
     rate = OrderedDict()
     rate_lock = RLock()
     errors = {code: {"model": ApiError} for code in (400, 404, 409, 411, 413, 422, 429, 502, 503, 504)}
@@ -216,22 +221,44 @@ def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str |
     @app.get("/v2/cases", response_model=list[Case])
     def cases(response: Response):
         response.headers["Cache-Control"] = PUBLIC_CACHE
-        return results.json(f"{cases_path}/index.json")
+        return curated.json(case_file("index.json"))
 
     @app.get("/v2/cases/{case_id}", response_model=Case)
     def case(case_id: CaseID, response: Response):
         response.headers["Cache-Control"] = PUBLIC_CACHE
-        return results.json(f"{cases_path}/{case_id}/manifest.json")
+        return curated.json(case_file(f"{case_id}/manifest.json"))
 
     @app.get("/v2/cases/{case_id}/series")
     def series(case_id: CaseID, response: Response):
         response.headers["Cache-Control"] = PUBLIC_CACHE
-        return results.json(f"{cases_path}/{case_id}/series.json")
+        return curated.json(case_file(f"{case_id}/series.json"))
+
+    if events is not None:
+        @app.get("/v2/events.index.json")
+        def events_index():
+            return Response(events.index_bytes, media_type="application/json", headers={"Cache-Control": PUBLIC_CACHE})
+
+        @app.get("/v2/events/{case_id}/bundle.json")
+        def event_bundle(case_id: CaseID):
+            row = events.events.get(case_id)
+            if row is None:
+                raise Rejected(404, "case_not_available", "No curated event matches that ID.")
+            data = curated.access(f"{case_id}/bundle.json", ASSET_LIMIT)
+            if sha256(data).hexdigest() != row["bundle_sha256"]:
+                raise Rejected(500, "service_error", "The event bundle failed its integrity check.")
+            return Response(data, media_type="application/json", headers={"Cache-Control": PUBLIC_CACHE})
+
+        @app.get("/v2/events/checksums.json")
+        def event_checksums():
+            return Response(curated.access("checksums.json", ASSET_LIMIT), media_type="application/json",
+                            headers={"Cache-Control": PUBLIC_CACHE})
 
     @app.post("/v2/jobs", response_model=Job, status_code=202, responses={200: {"model": Job}})
     def submit(body: JobRequest, request: Request, response: Response):
         client = request.client.host if request.client else "unknown"
-        view = jobs.submit(body, sha256(client.encode()).hexdigest()[:24])
+        view = events.submit(body) if events is not None else None
+        if view is None:
+            view = jobs.submit(body, sha256(client.encode()).hexdigest()[:24])
         response.headers.update({"Location": view.status_url, "Cache-Control": "no-store", "Retry-After": "3"})
         response.status_code = 200 if view.status == "succeeded" else 202
         return view
@@ -239,27 +266,30 @@ def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str |
     @app.get("/v2/jobs/{job_id}", response_model=Job)
     def poll(job_id: JobID, response: Response):
         response.headers["Cache-Control"] = "no-store"
-        return jobs.get(job_id)
+        replay = events.get(job_id) if events is not None else None
+        return replay if replay is not None else jobs.get(job_id)
 
-    def serve_artifact(folder, assets, name, request):
+    def serve_artifact(store, folder, assets, name, request):
         asset = next((record for record in assets if record["name"] == name), None)
         if asset is None:
             raise Rejected(404, "asset_not_found", "The asset is outside the published manifest.")
-        response = artifact_response(results.access(f"{folder}/{name}", ASSET_LIMIT), asset, request)
+        response = artifact_response(store.access(f"{folder}/{name}", ASSET_LIMIT), asset, request)
         jobs.reserve_delivery(len(response.body))
         return response
 
     @app.get("/v2/cases/{case_id}/layers/{name}")
     def case_layer(case_id: CaseID, name: AssetName, request: Request):
-        folder = f"{cases_path}/{case_id}"
-        return serve_artifact(folder, results.json(f"{folder}/assets.json"), name, request)
+        folder = case_file(case_id)
+        return serve_artifact(curated, folder, curated.json(f"{folder}/assets.json"), name, request)
 
     @app.get("/v2/jobs/{job_id}/layers/{name}")
     def job_layer(job_id: JobID, name: AssetName, request: Request):
-        view = jobs.get(job_id)
+        replay = events.get(job_id) if events is not None else None
+        view = replay if replay is not None else jobs.get(job_id)
         if view.status != "succeeded":
             raise Rejected(409, "result_pending", "The job result is unavailable.")
-        return serve_artifact(f"jobs/{job_id}", view.result["artifacts"], name, request)
+        return serve_artifact(curated if replay is not None else results, f"jobs/{job_id}",
+                              view.result["artifacts"], name, request)
 
     @app.get("/frames/{track}-{frame}/analysis", response_model=LegacyEvidence)
     def legacy(track: int, frame: int, hazard: Hazard, before: str, after: str,
@@ -269,7 +299,7 @@ def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str |
             raise Rejected(409, "contract_upgrade_required", "Opt into contract=2 and render measured evidence.")
         if (lon is None) != (lat is None):
             raise Rejected(422, "invalid_request", "Supply both lon and lat, or omit both.")
-        for row in results.json(f"{cases_path}/index.json"):
+        for row in curated.json(case_file("index.json")):
             if row["id"] not in {"chokwe", "qadirabad", "richmond", "kumamoto"}:
                 continue
             t, _, f, *_ = row["series_key"].split("_")
