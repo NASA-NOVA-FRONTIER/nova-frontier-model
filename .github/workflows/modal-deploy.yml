@@ -1,0 +1,81 @@
+name: Deploy to Modal
+
+# Every push to main re-runs the science checks and, if they pass, deploys the gateway to the
+# nova-frontier-model Modal app. Needs the repository secrets MODAL_TOKEN_ID and MODAL_TOKEN_SECRET
+# (an API token of the Modal workspace).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deployments share the job-state Dict, so they queue instead of overlapping or being cancelled.
+concurrency:
+  group: modal-deploy
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/science-tests.yml
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      MODAL_ENVIRONMENT: main
+      NISAR_APP_NAME: nova-frontier-model
+      NISAR_VOLUME: nova-frontier-chip-cache
+      NISAR_EARTHDATA_SECRET: nova-frontier-earthdata
+      NISAR_CASES_PATH: cases
+      # The defaults (2 active jobs, 12 new jobs a day, 5 per client IP, one worker container) suit a
+      # shared preview. Here the only client is the hazard-watch backend (one IP, which rate-limits
+      # its own users and runs at most 5 explorations at once), so the per-IP cap would end the
+      # public demo after five fresh areas.
+      NISAR_MAX_ACTIVE_JOBS: "5"
+      NISAR_WORKER_CONTAINERS: "5"
+      NISAR_JOBS_PER_DAY: "300"
+      NISAR_JOBS_PER_IP_DAY: "300"
+      # Measured 2026-11-13: fresh areas took 3.5 to 4 minutes with three jobs at once and the
+      # default 240 s limit killed the busier ones, leaving their slots taken until the lease ended.
+      NISAR_WORKER_TIMEOUT_SECONDS: "420"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Check the Modal credentials
+        shell: bash
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ -z "$MODAL_TOKEN_SECRET" ]; then
+            echo "::error title=Modal credentials missing::Add the repository secrets MODAL_TOKEN_ID and MODAL_TOKEN_SECRET (an API token of the Modal workspace)."
+            exit 1
+          fi
+      - name: Install the Modal client
+        run: python -m pip install modal==1.6.4
+      - name: Build and deploy
+        run: python -m modal deploy --env main modal_app.py
+      - name: Verify the deployment
+        shell: bash
+        run: |
+          url=$(python -c 'import os, modal; print(modal.Function.from_name(os.environ["NISAR_APP_NAME"], "api", environment_name="main").get_web_url())')
+          echo "Gateway: $url"
+          body=""
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -fsS --max-time 60 "$url/health") && break
+            sleep 10
+          done
+          test -n "$body" || { echo "::error::$url/health did not answer"; exit 1; }
+          echo "$body"
+          python -c 'import json, sys; h = json.loads(sys.argv[1]); assert h["status"] == "ok", h; assert h["git_sha"] == sys.argv[2], (h["git_sha"], sys.argv[2])' "$body" "$GITHUB_SHA"
+          curl -fsS --max-time 60 "$url/v2/cases" | python -c 'import json, sys; cases = json.load(sys.stdin); assert any(case["id"] == "san-marcos" for case in cases), "San Marcos is missing from the deployed bundle"'
+          {
+            echo "### Deployed to Modal"
+            echo "- App \`$NISAR_APP_NAME\`: $url"
+            echo "- Commit \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
