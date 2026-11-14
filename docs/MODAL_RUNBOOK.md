@@ -1,5 +1,11 @@
 # Modal runbook
 
+## Publish the measured event release
+
+The main and PR preview workflows install the package pinned in `data/event_release.json` before deployment. The installer downloads the GitHub release asset, verifies the archive and every member, then publishes to the dedicated `nova-frontier-event-cases` Volume. The API reads this Volume through a read-only mount. Use the workflow smoke checks to verify the catalog digest, exact replays, case series and COG ranges.
+
+For rollback, disable `NISAR_EVENT_RELEASE` in the deploy workflow to serve the existing `NISAR_CASES_PATH` directory, or restore the previous verified release metadata and redeploy through the same workflow.
+
 ## Stage and verify a case bundle
 
 Build the prepared case directory with `python scripts/prepare_api_cases.py --output <directory>` after restoring release fixtures. Use a separate staging app and job Dict. Upload the generated directory to the staging Volume under a new `cases-...` name, then set `NISAR_CASES_PATH` to that name in the deploying shell. Defaults continue to read `/cases`. A versioned directory lets a later deployment switch the case set while keeping older files available.

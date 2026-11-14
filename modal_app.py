@@ -1,5 +1,6 @@
 """Modal entry points for the NISAR evidence API."""
 from hashlib import sha256
+import json
 import logging
 import os
 from pathlib import Path
@@ -19,6 +20,9 @@ SECRET_NAME = os.environ.get("NISAR_EARTHDATA_SECRET", "nova-frontier-earthdata"
 STATE_NAME = os.environ.get("NISAR_STATE_DICT", f"{APP_NAME}-jobs")
 CASES_PATH = os.environ.get("NISAR_CASES_PATH", "cases")
 CORS_ORIGINS = os.environ.get("NISAR_CORS_ORIGINS", "")
+EVENTS_STORAGE = Path("/event-cases")
+EVENTS_CONFIG = ROOT / "data/event_release.json"
+EVENTS_ENABLED = os.environ.get("NISAR_EVENT_RELEASE") == "1"
 if not re.fullmatch(r"cases(?:-[a-z0-9-]{1,60})?", CASES_PATH):
     raise ValueError("Use a cases directory name such as cases or cases-2026-11.")
 DEPS = ("fastapi==0.129.0", "pydantic==2.12.5", "requests==2.34.2")
@@ -34,6 +38,11 @@ WORKER_MEMORY_MB = int(os.environ.get("NISAR_WORKER_MEMORY_MB", "2048"))
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 state = modal.Dict.from_name(STATE_NAME, create_if_missing=True)
+gateway_volumes = {str(STORAGE): volume}
+if EVENTS_ENABLED:
+    gateway_volumes[str(EVENTS_STORAGE)] = modal.Volume.from_name(
+        "nova-frontier-event-cases"
+    ).with_mount_options(read_only=True)
 
 def revision():
     digest = sha256()
@@ -54,6 +63,7 @@ def git_sha():
     try:
         dirty = check_output(["git", "status", "--porcelain", "--untracked-files=all", "--",
                               "modal_app.py", "requirements-lock.txt", "scripts/observation-mock/index.html",
+                              "data/event_release.json",
                               "src/surface_dynamics", "models/global_explorer_v2"], cwd=ROOT)
         if not dirty:
             return check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -82,10 +92,13 @@ package = ROOT / "src" / "surface_dynamics"
 MOCK_HTML = "/opt/nisar/observation-mock.html"
 gateway_image = (
     common.uv_pip_install(*DEPS)
-    .env(runtime_config)
+    .env({**runtime_config, "NISAR_EVENT_RELEASE": "1" if EVENTS_ENABLED else ""})
     .add_local_dir(package, "/opt/nisar/surface_dynamics")
     .add_local_file(ROOT / "scripts" / "observation-mock" / "index.html", MOCK_HTML)
 )
+EVENTS_RUNTIME_CONFIG = "/opt/nisar/event_release.json"
+if EVENTS_ENABLED:
+    gateway_image = gateway_image.add_local_file(EVENTS_CONFIG, EVENTS_RUNTIME_CONFIG)
 worker_image = (
     common.apt_install("libexpat1", "libgomp1")
     .uv_pip_install(requirements=[str(ROOT / "requirements-lock.txt")],
@@ -135,7 +148,7 @@ def worker(body, job_id):
         state.put(key, {**record, "status": "failed", "code": "worker_failed"})
 
 
-@app.function(image=gateway_image, volumes={str(STORAGE): volume}, cpu=(.125, .25), memory=(256, 512),
+@app.function(image=gateway_image, volumes=gateway_volumes, cpu=(.125, .25), memory=(256, 512),
               timeout=20, max_containers=1, scaledown_window=5)
 @modal.concurrent(max_inputs=16)
 @modal.asgi_app(label=APP_NAME)
@@ -145,6 +158,12 @@ def api():
 
     jobs = JobStore(state, worker.spawn, REVISION, max_active=MAX_ACTIVE_JOBS,
                     jobs_per_day=JOBS_PER_DAY, jobs_per_ip_day=JOBS_PER_IP_DAY)
+    events = None
+    if EVENTS_ENABLED:
+        from surface_dynamics.event_release import EventRelease
+
+        config = json.loads(Path(EVENTS_RUNTIME_CONFIG).read_bytes())
+        events = EventRelease(EVENTS_STORAGE / config["release"], config["checksums_sha256"])
     return create_app(STORAGE, jobs, reload=volume.reload,
                       observation_page=Path(MOCK_HTML).read_text(encoding="utf-8"),
-                      git_sha=GIT_SHA, cases_path=CASES_PATH)
+                      git_sha=GIT_SHA, cases_path=CASES_PATH, events=events)

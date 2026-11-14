@@ -1,0 +1,81 @@
+{
+  "tour_order": ["qadirabad", "chokwe", "richmond", "san-marcos", "skollersta", "bug-fire", "high-plains", "kumamoto", "choco"],
+  "events": {
+    "qadirabad": {
+      "role": "development case", "lens": "flood_wetland",
+      "teaches": "The marker brightened in both channels while the optical new-water group contained darkening cells.",
+      "caveat": "Mixed cover, roughness and moisture can change the sign. Compare dated optical snapshots and field observations.",
+      "replay": {"chips": "products/flood_pilot/cases/qadirabad/raw", "key": "084_A_018_4005_DHDH", "pixels": 512, "baseline_end_date": "2026-07-14", "target_date": "2026-07-26"}
+    },
+    "chokwe": {
+      "role": "development case", "lens": "flood_wetland",
+      "teaches": "Dual darkening and departure from the observed baseline band use different rules and denominators.",
+      "caveat": "Cloud exclusions, a wet-season baseline, beta calibration and one assessment acquisition limit interpretation. Additional compatible radar and clear optical acquisitions would help.",
+      "replay": {"chips": "products/flood_pilot/cases/chokwe/raw", "key": "114_A_165_4005_DHDH", "pixels": 512, "baseline_end_date": "2026-01-05", "target_date": "2026-01-17"}
+    },
+    "richmond": {
+      "role": "development case", "lens": "flood_wetland",
+      "teaches": "A 10.24 km radar window returned no new open water on the usable optical comparison cells.",
+      "caveat": "The optical snapshots cover part of the radar window and are offset from the radar dates. Clearer, closer optical observations would help.",
+      "replay": {"chips": "products/flood_pilot/cases/richmond/raw", "key": "047_A_022_2005_QPDH", "pixels": 512, "baseline_end_date": "2026-07-23", "target_date": "2026-08-16"}
+    },
+    "san-marcos": {
+      "role": "fresh evaluation", "lens": "flood_wetland",
+      "teaches": "The measured radar comparison and coarser optical groups answer different questions within one wetland window.",
+      "caveat": "Crop cover, wind and mixed water or vegetation may influence return. Repeat clear optical passes and field records would help."
+    },
+    "skollersta": {
+      "role": "held-out test", "lens": "agriculture", "title": "Sköllersta rye trial, Sweden",
+      "teaches": "The documented trial date falls inside an observed focal-versus-annulus change bracket.",
+      "caveat": "The independent record dates the trial. The harvested footprint, moisture and management across the full window remain unresolved.",
+      "chips": "scratch/exploration-holdout-v2/measured/skollersta_rye/chips", "baseline_end_date": "2026-08-17",
+      "reference": "scratch/exploration-holdout-v2/measured/skollersta_rye/summary.json"
+    },
+    "bug-fire": {
+      "role": "held-out test", "lens": "wildfire", "title": "Bug Fire vicinity, Nevada, USA",
+      "teaches": "Repeated cross-pol decline occurred inside and outside the mapped fire perimeter.",
+      "caveat": "A perimeter can enclose unburned cells. Dated severity mapping and vegetation or field observations would help interpret the departures.",
+      "chips": "scratch/exploration-holdout-v2/measured/bug/chips", "baseline_end_date": "2026-08-07",
+      "reference": "scratch/exploration-holdout-v2/measured/bug/summary.json"
+    },
+    "high-plains": {
+      "role": "stable control", "lens": "wildfire", "title": "High Plains off-event comparison, Kansas, USA",
+      "teaches": "The radar flagged repeated HV decline at an off-event site with zero confirmed vegetation loss in the supported optical snapshot.",
+      "caveat": "This is a comparison site for the sampled optical bracket. Soil moisture, tillage and changing vegetation can still produce radar departures.",
+      "chips": "scratch/exploration-holdout-v1/high_plains_upland/chips", "baseline_end_date": "2026-08-20",
+      "reference": "scratch/exploration-holdout-v1/high_plains_upland/wildfire/result.json",
+      "replay": {"chips": "scratch/exploration-holdout-v1/high_plains_upland/chips", "key": "163_A_021_4005_DHDH", "pixels": 64, "baseline_end_date": "2026-08-20"}
+    },
+    "kumamoto": {
+      "role": "development case", "lens": "insar",
+      "teaches": "A bracketing sequence of coherent pairs still has too few common correction-input cells for the readiness gate.",
+      "caveat": "Ionosphere, atmosphere, unwrapping and the phase reference remain material. Verified correction conventions, redundant pairs and independent geodesy are needed."
+    },
+    "choco": {
+      "role": "development case", "lens": "insar",
+      "teaches": "Two real GUNW intervals can provide coherence even when shared phase support is missing.",
+      "caveat": "Scattering changes and interval length affect coherence. Stable reference evidence and independently checked corrections would be needed for displacement."
+    },
+    "palouse": {
+      "role": "held-out test", "lens": "agriculture", "title": "Palouse upland comparison, Washington, USA",
+      "teaches": "The focal patch and nearby annulus can change by different amounts on the same observed dates.",
+      "caveat": "The mapped cropland at the point provides context. Tillage, moisture and phenology are unresolved without field histories.",
+      "chips": "scratch/exploration-holdout-v1/palouse_upland/chips", "baseline_end_date": "2026-08-20",
+      "replay": {"chips": "scratch/exploration-holdout-v1/palouse_upland/chips", "key": "149_A_025_4005_DHDH", "pixels": 64, "baseline_end_date": "2026-08-20"}
+    },
+    "matam": {
+      "role": "fresh evaluation", "lens": "flood_wetland", "title": "Senegal River / Matam, Senegal",
+      "teaches": "SAR departures are conditional on the chosen baseline and acquisition bracket.",
+      "caveat": "Surface roughness, vegetation and water can all affect the return. Compare separately dated OPERA snapshots before interpreting an event.",
+      "chips": "products/flood_evidence_2026/cases/matam/radar_chips", "baseline_end_date": "2026-09-08",
+      "replay": {"chips": "products/flood_evidence_2026/cases/matam/radar_chips", "key": "030_A_009_2005_DHDH", "pixels": 512, "baseline_end_date": "2026-09-08"}
+    },
+    "rowe-creek": {
+      "role": "fresh evaluation", "lens": "vegetation_disturbance", "title": "Rowe Creek vicinity, Oregon, USA",
+      "teaches": "Radar departure can motivate a disturbance comparison under several plausible surface explanations.",
+      "caveat": "Moisture, roughness and vegetation structure all affect the channels. The native replay uses radar only. Independent dated event and vegetation evidence would help.",
+      "chips": "products/characterization_v05/cases/rowe_creek/raw", "baseline_end_date": "2026-07-25",
+      "replay": {"chips": "products/characterization_v05/cases/rowe_creek/raw", "key": "071_D_066_4005_DHDH", "pixels": 512, "baseline_end_date": "2026-07-25"}
+    }
+  }
+}
