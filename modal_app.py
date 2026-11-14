@@ -35,6 +35,10 @@ WORKER_CONTAINERS = int(os.environ.get("NISAR_WORKER_CONTAINERS", "1"))
 WORKER_TIMEOUT_SECONDS = int(os.environ.get("NISAR_WORKER_TIMEOUT_SECONDS", "240"))
 JOB_LEASE_SECONDS = int(os.environ.get("NISAR_JOB_LEASE_SECONDS", str(WORKER_TIMEOUT_SECONDS + 120)))
 WORKER_MEMORY_MB = int(os.environ.get("NISAR_WORKER_MEMORY_MB", "2048"))
+GCOV_READER = os.environ.get("NISAR_GCOV_READER", "h5py")
+GCOV_POSTING = os.environ.get("NISAR_GCOV_POSTING_M", "native")
+if GCOV_READER not in {"h5py", "pyfive"} or GCOV_POSTING not in {"native", "40"}:
+    raise ValueError("Use h5py or pyfive and native or 40 m for live GCOV.")
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 state = modal.Dict.from_name(STATE_NAME, create_if_missing=True)
@@ -57,6 +61,7 @@ def revision():
         if item.suffix in {".py", ".json", ".html", ".txt"}:
             payload = payload.replace(b"\r\n", b"\n")
         digest.update(sha256(payload).digest())
+    digest.update(f"{GCOV_READER}:{GCOV_POSTING}".encode())
     return digest.hexdigest()[:24]
 
 def git_sha():
@@ -87,6 +92,7 @@ runtime_config = {
     "NISAR_JOBS_PER_IP_DAY": str(JOBS_PER_IP_DAY),
     "NISAR_WORKER_TIMEOUT_SECONDS": str(WORKER_TIMEOUT_SECONDS),
     "NISAR_JOB_LEASE_SECONDS": str(JOB_LEASE_SECONDS),
+    "NISAR_GCOV_READER": GCOV_READER, "NISAR_GCOV_POSTING_M": GCOV_POSTING,
 }
 package = ROOT / "src" / "surface_dynamics"
 MOCK_HTML = "/opt/nisar/observation-mock.html"
