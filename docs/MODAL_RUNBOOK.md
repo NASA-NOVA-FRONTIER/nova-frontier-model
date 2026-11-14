@@ -52,6 +52,37 @@ permission or a figure-specific license from the rights holder.
 
 The worker expects EARTHDATA_TOKEN in a Modal Secret. The gateway uses public catalog reads. The project default is the nova-frontier-earthdata secret. Enter the new value in Modal's Secret UI, or set NISAR_EARTHDATA_SECRET to a different resource name in the deployment shell, and redeploy. Run a bounded measured job, check its science_status and revoke the old token after verification. Keep token values out of Git, job JSON, terminal command arguments and logs. The local DPAPI provider is Windows-only.
 
+## Configure the live GCOV reader and grid
+
+The pull request preview uses `NISAR_GCOV_READER=pyfive` and `NISAR_GCOV_POSTING_M=40`.
+The deployment defaults are `h5py` and the native grid. These settings apply only
+to live `explore` jobs. They contribute to the service revision used for job reuse,
+and pyfive uses a separate native chip cache. InSAR jobs and measured event replays
+continue on their existing paths.
+
+The archive reader fetches the same native window used by the control. Requests use
+the Earthdata secret, bounded parallel byte ranges, a 128 MiB transfer budget per scene,
+and a shared 150-second prefetch deadline. Failed reads are reported per scene. Change
+the reader setting and redeploy to run the h5py control.
+
+A 40 m job requires a verified 10 m L-band source grid. The worker averages each
+4 × 4 block in linear gamma0 before converting to dB and requires all 16 native
+samples to have valid support. The Data Lab reader uses a NaN-aware mean, which can
+retain blocks with partial support. Each valid 40 m point value describes a block
+average. Read the returned CRS, bounds, dimensions and valid counts with the values.
+For a 384 × 384 native window, the measured 40 m grid is 96 × 96 over the same
+3.84 km square. Display PNGs are capped separately at 256 pixels on the longest
+side. The numerical grid remains available in the science response and raster artifacts.
+
+The Modal preview workflow submits the five fixed Chocó granules from
+[`scripts/modal_preview_choco.json`](../scripts/modal_preview_choco.json). It checks
+the returned science grid and the PNG delivered by the gateway, and checks for
+parallel archive batches or complete chip-cache reuse. See `science.gcov_reading`
+for each scene's cache state, HTTP requests, bytes and range batches, and
+`science.timings` for prefetch, aggregation and analysis. The smoke test reports
+gateway elapsed time. Browser click-to-layer latency requires a separate measurement
+through Explorer and the application backend.
+
 ## Check usage and limits
 
     python -m modal billing summary

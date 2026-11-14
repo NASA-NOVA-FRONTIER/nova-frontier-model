@@ -19,6 +19,7 @@ on:
       - models/**
       - scripts/observation-mock/**
       - scripts/modal_preview_*.py
+      - scripts/modal_preview_choco.json
       - .github/workflows/modal-preview.yml
   schedule:
     - cron: '23 7 * * *'
@@ -58,6 +59,8 @@ jobs:
       NISAR_JOBS_PER_DAY: "20"
       NISAR_JOBS_PER_IP_DAY: "20"
       NISAR_WORKER_TIMEOUT_SECONDS: "420"
+      NISAR_GCOV_READER: "pyfive"
+      NISAR_GCOV_POSTING_M: "40"
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -93,7 +96,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ steps.smoke.outcome }}" = "success" ]; then
-            result="✅ Deployed and smoke-tested at \`${GITHUB_SHA:0:7}\`: health, limits and one real InSAR pair job passed."
+            result="✅ Deployed and smoke-tested at \`${GITHUB_SHA:0:7}\`: health, limits, InSAR, Chocó GCOV and event replays passed."
           else
             result="❌ The preview deploy or its smoke test failed at \`${GITHUB_SHA:0:7}\`; see the run for the log."
           fi

@@ -1,4 +1,4 @@
-"""Smoke test of a deployed preview gateway: health, limits and one real InSAR pair job.
+"""Smoke test a preview gateway with a real InSAR pair and an optional GCOV scene plan.
 
 Environment: GATEWAY_URL, EXPECTED_GIT_SHA and optionally EXPECTED_JOBS_PER_DAY.
 Standard library only, so the workflow needs nothing beyond the Modal client.
@@ -6,9 +6,12 @@ Standard library only, so the workflow needs nothing beyond the Modal client.
 from datetime import date, timedelta
 import json
 import os
+from pathlib import Path
+import struct
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 KUMAMOTO = (130.65, 32.65)
@@ -63,15 +66,9 @@ def pair_job_body(pair):
             "coherence_threshold": COHERENCE_THRESHOLD}
 
 
-def run_pair_job(base):
-    today = date.today()
-    query = (f"longitude={KUMAMOTO[0]}&latitude={KUMAMOTO[1]}&product=GUNW"
-             f"&start_date={today - timedelta(days=CATALOG_WINDOW_DAYS)}&end_date={today}")
-    pair = first_pair(request(f"{base}/v2/coverage?{query}"))
-    if pair is None:
-        raise SystemExit("the GUNW catalog listed no pair over Kumamoto")
+def run_job(base, body):
     started = time.monotonic()
-    job = request(f"{base}/v2/jobs", pair_job_body(pair))
+    job = request(f"{base}/v2/jobs", body)
     while job.get("status") not in DONE:
         if time.monotonic() - started > JOB_BUDGET_SECONDS:
             raise SystemExit(f"job {job.get('job_id')} did not finish in {JOB_BUDGET_SECONDS} s")
@@ -80,7 +77,49 @@ def run_pair_job(base):
     result = job.get("result") or {}
     if job["status"] != "succeeded" or not result.get("layers"):
         raise SystemExit(f"job ended {job['status']} with {len(result.get('layers') or [])} layers: {job.get('error')}")
-    return round(time.monotonic() - started), result["science_status"], len(result["layers"])
+    return round(time.monotonic() - started), result
+
+
+def run_pair_job(base):
+    today = date.today()
+    query = (f"longitude={KUMAMOTO[0]}&latitude={KUMAMOTO[1]}&product=GUNW"
+             f"&start_date={today - timedelta(days=CATALOG_WINDOW_DAYS)}&end_date={today}")
+    pair = first_pair(request(f"{base}/v2/coverage?{query}"))
+    if pair is None:
+        raise SystemExit("the GUNW catalog listed no pair over Kumamoto")
+    seconds, result = run_job(base, pair_job_body(pair))
+    return seconds, result["science_status"], len(result["layers"])
+
+
+def run_gcov_job(base):
+    body = json.loads(Path(__file__).with_name("modal_preview_choco.json").read_text(encoding="utf-8"))
+    seconds, result = run_job(base, body)
+    science = result["science"]
+    reading = science["gcov_reading"]
+    if reading["reader"] != "pyfive" or reading["native_window_pixels"] != 384:
+        raise SystemExit("Chocó did not use the configured pyfive reader and native window")
+    grids = [item["grid"] for item in science["observations"] if item.get("grid")]
+    if len(grids) != len(body["scenes"]):
+        raise SystemExit(f"Chocó returned only {len(grids)} measured scenes")
+    for grid in grids:
+        x0, y0, x1, y1 = grid["bounds_native"]
+        if (grid["width"], grid["height"], grid["pixel_spacing_m"], x1 - x0, y1 - y0) != (
+                96, 96, [40, 40], 3840, 3840):
+            raise SystemExit(f"Unexpected Chocó grid: {grid}")
+    reads = list(reading["reads"].values())
+    batches = sum(read.get("range_batches", 0) for read in reads)
+    if not batches and not (len(reads) == len(grids) and all(read.get("chip_hit") for read in reads)):
+        raise SystemExit("No parallel range batches or complete chip-cache reuse recorded")
+    url = urllib.parse.urljoin(base + "/", result["layers"][0]["png_url"])
+    with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        header = response.read(24)
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit("The Chocó layer did not serve a PNG")
+    width, height = struct.unpack(">II", header[16:24])
+    if not (0 < width <= 256 and 0 < height <= 256):
+        raise SystemExit(f"Unexpected Chocó display PNG dimensions: {width} × {height}")
+    print(f"Chocó GCOV job in {seconds} s, EPSG:{grids[0]['epsg']}, "
+          f"96 × 96 at 40 m, {len(grids)} scenes, {batches} range batches, PNG {width} × {height}")
 
 
 def main():
@@ -94,6 +133,8 @@ def main():
             raise SystemExit(f"daily job limit is {limit}, expected {expected}")
     seconds, science, layers = run_pair_job(base)
     print(f"insar-pair job {science} in {seconds} s with {layers} layers")
+    if os.environ.get("NISAR_GCOV_READER") == "pyfive" and os.environ.get("NISAR_GCOV_POSTING_M") == "40":
+        run_gcov_job(base)
 
 
 if __name__ == "__main__":
