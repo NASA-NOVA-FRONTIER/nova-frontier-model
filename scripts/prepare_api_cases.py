@@ -1,0 +1,330 @@
+"""Build a versioned precomputed case bundle from verified measurements."""
+import argparse
+import json
+from pathlib import Path
+from shutil import copy2, copytree
+from tempfile import TemporaryDirectory
+
+import numpy as np
+from rasterio.warp import transform
+import xarray as xr
+
+from surface_dynamics.analysis import measured_db
+from surface_dynamics.flood import process_flood
+from surface_dynamics.insar_stack import process_stack
+from surface_dynamics.io import load_cube
+from surface_dynamics.network import acquisition_dates
+from surface_dynamics.service_artifacts import (
+    checksum, data_layers, native_grid, publish_files, published_layers, render_layer, write_json,
+)
+from surface_dynamics.service_contracts import Case, Grid
+from surface_dynamics.service_visualizations import gcov_dataset_frames, render_gcov_visualizations
+from surface_dynamics.surface_features import from_db
+
+
+def read(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def series(cube, grid, point, observed, reference_groups, signature):
+    dates = cube["dates"].astype(str).tolist()
+    polarizations = list(map(str, cube["polarizations"]))
+    db = measured_db(cube)
+    before = [dates.index(day) for day in observed["baseline_dates"]]
+    after = [dates.index(day) for day in observed["assessment_dates"]]
+    channel_ids = [polarizations.index(signature[key]) for key in ("co_polarization", "cross_polarization")
+                   if signature[key] in polarizations]
+    mask = np.isfinite(db[:, channel_ids]).all(axis=(0, 1))
+    ref = {"all_common_cells": mask, "optical_new_open_water": mask & (reference_groups == 1),
+           "optical_stable_open_water": mask & (reference_groups == 2),
+           "optical_stable_nonwater": mask & (reference_groups == 0)}
+    point_x, point_y = transform("EPSG:4326", grid["crs"], [point[0]], [point[1]])
+    x = int(np.argmin(abs(cube["x"] - point_x[0])))
+    y = int(np.argmin(abs(cube["y"] - point_y[0])))
+    observations, observed_groups, timeline = [], [], []
+    for i, day in enumerate(dates):
+        source = observed["sources"][i] if len(observed["sources"]) == len(dates) else None
+        for j, pol in enumerate(polarizations):
+            a = db[i, j]
+            value = float(a[y, x]) if np.isfinite(a[y, x]) else None
+            observations.append({"date": day, "polarization": pol, "gamma0_db": value, "source": source})
+            for group, support in ref.items():
+                values = a[support & np.isfinite(a)]
+                count = int(len(values))
+                observed_groups.append({"date": day, "polarization": pol, "group": group,
+                                        "cells": count, "median_db": float(np.median(values)) if count else None,
+                                        "spatial_iqr_db": np.percentile(values, [25, 75]).tolist() if count else None})
+    if len(channel_ids) == 2:
+        diagnostics = from_db(db[:, channel_ids], dates, before, after)
+        count = diagnostics["quality"]["fixed_common_cells"] if diagnostics["quality"]["diagnostic_available"] else 0
+        for index, flags in zip(after, diagnostics["maps"]["assessment_departure_mask"]):
+            flagged = int(flags.sum())
+            timeline.append({"date": dates[index], "outside_cells": flagged, "eligible_cells": count,
+                             "outside_percent": 100 * flagged / count if count else None})
+    return {"api_version": "2.0", "point": point, "selected_pixel": [y, x], "observations": observations,
+            "observed_groups": observed_groups, "diagnostic_band_timeline": timeline,
+            "observation_noise_db": None, "gp_conditional_latent_band_db": None,
+            "spatial_iqr_semantics": "Interquartile range of measured cells in each fixed-support group."}
+
+
+def build(root, output, *, choco_readiness=None):
+    root = root.resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    cases = []
+    config = read(root / "configs/flood_pilot.json")
+    for spec in config["cases"]:
+        case_id = spec["id"]
+        point = [spec["longitude"], spec["latitude"]]
+        destination = output / case_id
+        destination.mkdir()
+        with TemporaryDirectory() as work:
+            request = read(root / f"contracts/examples/{case_id}-flood.json")
+            for field, key in [("source", "cube_path"), ("reference", "path")]:
+                request[field][key] = str(root / request[field][key])
+            result = process_flood(request, work)
+            arrays = Path(work) / "characterization_arrays.nc"
+            copy2(arrays, destination / arrays.name)
+            copy2(Path(work) / "group_trajectories.csv", destination / "group_trajectories.csv")
+        observed = result["observations"]
+        cube = load_cube(request["source"]["cube_path"])
+        grid = native_grid(cube["x"], cube["y"], cube["epsg"])
+        with xr.open_dataset(destination / arrays.name, engine="h5netcdf") as ds:
+            samples = series(cube, grid, point, observed, ds.reference_group.values, result["signature_summary"])
+        write_json(destination / "series.json", samples)
+        info = read(root / f"products/flood_pilot/cases/{case_id}/admission.json")
+        signature = result["signature_summary"]
+        evidence = {
+            "state": signature["interpretation_status"], "radar_support_cells": signature["radar_supported_pixels"],
+            "threshold_cells": signature["darkening_pixels"],
+            "threshold_cell_area_ha": signature["darkening_signature_analysis_cell_area_ha"],
+            "threshold_policy": result["policy"], "area_semantics": signature["area_semantics"],
+            "independent_reference": result["reference_evidence"], "comparison": result["proxy_comparison"],
+            "sources": observed["sources"], "causal_attribution": None, "flood_probability": None,
+            "flood_depth_m": None, "limitations": result["limitations"],
+        }
+        cases.append(publish(destination, case_id, spec["name"], point, grid, info["series_key"],
+                             observed["baseline_dates"], observed["assessment_dates"], result["status"], evidence))
+
+    destination = output / "kumamoto"
+    destination.mkdir()
+    request = read(root / "contracts/examples/kumamoto-stack-offline-wide.json")
+    request["source"]["pair_paths"] = [str(root / p) for p in request["source"]["pair_paths"]]
+    with TemporaryDirectory() as work:
+        result = process_stack(request, work)
+        name = "interferometric_interval_dynamics.nc"
+        for filename in (name, "minimum_coherence.tif", "coherence_interval_contrast.tif", "common_phase_support.tif"):
+            copy2(Path(work) / filename, destination / filename)
+    with xr.open_dataset(destination / name, engine="h5netcdf") as ds:
+        grid = native_grid(ds.x.values, ds.y.values, ds.attrs["epsg_code"])
+    pair = result["observations"][1]
+    evidence = {"state": result["quality"]["phase_comparison_status"], "pair": pair,
+                "los_displacement_cm": None, "common_support": result["quality"],
+                "limitations": result["limitations"]}
+    write_json(destination / "series.json", {"api_version": "2.0", "intervals": result["observations"],
+                                             "observation_noise_db": None, "gp_conditional_latent_band_db": None})
+    cases.append(publish(destination, "kumamoto", "Kumamoto, Japan", [130.65, 32.65], grid,
+                         "024_A_018_4000_SH", [pair["reference_date"]],
+                         [item["secondary_date"] for item in result["observations"][1:]],
+                         result["status"], evidence, coherence_index=1))
+    if choco_readiness is not None:
+        cases.append(prepare_choco(choco_readiness, output))
+    write_json(output / "index.json", cases)
+    print(json.dumps({"cases": len(cases), "directory": str(output)}))
+
+
+def prepare_choco(source, output):
+    manifest = read(source / "manifest.json")
+    science = manifest["science"]
+    point = manifest["point"]
+    status = manifest["science_status"]
+    if (manifest["operation"] != "insar-readiness" or point != [-76.256, 4.86]
+            or status != "not_displacement_ready" or science["los_displacement_cm"] is not None):
+        raise ValueError("Expected the measured Chocó correction-readiness result.")
+
+    name = "correction_readiness_arrays.nc"
+    source_array = source / name
+    asset = next(asset for asset in manifest["artifacts"] if asset["name"] == name)
+    if source_array.stat().st_size != asset["bytes"] or checksum(source_array) != asset["sha256"]:
+        raise ValueError("Chocó source array does not match the live job manifest.")
+
+    destination = output / "choco"
+    with xr.open_dataset(source_array, engine="h5netcdf") as ds:
+        key = ds.attrs["series_key"]
+        reference_dates = np.datetime_as_string(ds.reference_time.values, unit="D").tolist()
+        secondary_dates = np.datetime_as_string(ds.secondary_time.values, unit="D").tolist()
+        if (key != "148_A_004_2000_SH" or reference_dates != ["2026-07-18", "2026-08-11"]
+                or secondary_dates != ["2026-08-11", "2026-08-23"]):
+            raise ValueError("Expected the declared Chocó series and both measured intervals.")
+        x, y, epsg = ds.x.values, ds.y.values, ds.attrs["epsg_code"]
+        grid = native_grid(x, y, epsg)
+        intervals = []
+        for index, (reference, secondary, quality) in enumerate(
+            zip(reference_dates, secondary_dates, science["pair_quality"], strict=True)
+        ):
+            source_id = quality["source_id"]
+            if tuple(acquisition_dates(source_id)) != (reference, secondary):
+                raise ValueError("Chocó interval dates do not match the source product.")
+            values = ds.coherence.values[index]
+            finite = values[np.isfinite(values)]
+            if not finite.size:
+                raise ValueError("A declared Chocó pair has no measured coherence support.")
+            intervals.append({"reference_date": reference, "secondary_date": secondary,
+                              "interval_days": int(ds.interval_days.values[index]),
+                              "source_id": source_id, "finite_cells": int(finite.size),
+                              "total_cells": int(values.size), "median_coherence": float(np.median(finite))})
+        destination.mkdir()
+        layer = render_layer(destination, "/v2/cases/choco/layers", "coherence", ds.coherence.values[0],
+                             x, y, epsg, units="unitless", cmap="cividis", stretch=(0, 1))
+    copy2(source_array, destination / name)
+    evidence = {"state": status, "pair": intervals[0], "los_displacement_cm": None,
+                "corrections_applied": science["corrections_applied"], "common_support": science["quality"],
+                "source_array_sha256": asset["sha256"], "source_revision": manifest["revision"],
+                "limitations": science["limitations"]}
+    write_json(destination / "series.json", {"api_version": "2.0", "intervals": intervals,
+                                             "observation_noise_db": None, "gp_conditional_latent_band_db": None})
+    return publish(destination, "choco", "Chocó, Colombia", point, grid, key,
+                   reference_dates[:1], secondary_dates, status, evidence, layers=[layer])
+
+
+def prepare_san_marcos(source, output):
+    manifest_path = source / "manifest.json"
+    if checksum(manifest_path) != "a14af0f01624b689b4208515007bfc9e5acbba1a89b28eac3d550a94d70e8dab":
+        raise ValueError("Expected the verified San Marcos explore job manifest.")
+    result = read(manifest_path)
+    science = result["science"]
+    lens = science["lens"]
+    radar = lens["radar"]
+    optical = lens["evidence"]
+    case_id = "san-marcos"
+    prefix = f"/v2/cases/{case_id}"
+    layer_prefix = prefix + "/layers"
+    source_job = "411f19fff5d04e73961af97cc101cccf"
+    source_prefix = f"/v2/jobs/{source_job}/layers"
+
+    destination = output / case_id
+    destination.mkdir()
+    for asset in result["artifacts"]:
+        name = asset["name"]
+        path = source / name
+        if (Path(name).name != name or asset["href"] != f"{source_prefix}/{name}"
+                or path.stat().st_size != asset["bytes"] or checksum(path) != asset["sha256"]):
+            raise ValueError(f"San Marcos asset does not match the verified job manifest: {name}")
+        copy2(path, destination / name)
+    assets = publish_files(destination, layer_prefix)
+    if len(assets) != len(result["artifacts"]):
+        raise ValueError("The case delivery budget must cover every verified San Marcos asset.")
+
+    def case_layers(layers):
+        return [{**layer, "png_url": layer["png_url"].replace(source_prefix, layer_prefix, 1),
+                 "cog_url": layer["cog_url"].replace(source_prefix, layer_prefix, 1)}
+                for layer in layers]
+
+    grid = Grid(crs=f'EPSG:{radar["grid"]["epsg"]}', bounds=radar["grid"]["bounds_native"],
+                shape=(radar["grid"]["height"], radar["grid"]["width"]),
+                posting_m=radar["grid"]["pixel_spacing_m"])
+    observations = [
+        {"date": row["date"], "sensing_start_utc": row["sensing_start_utc"],
+         "polarization": pol, "gamma0_db": value, "source": row["granule_title"],
+         "granule_id": row["granule_id"], "valid_radar_cells": row["valid_pixel_count_by_pol"][pol]}
+        for row in science["observations"] for pol, value in row["point_db"].items()
+    ]
+    evidence = {
+        "state": "optical_no_new_open_water_on_sampled_support",
+        "lens_id": lens["id"],
+        "source_job_id": source_job,
+        "source_revision": result["revision"],
+        "radar_support_cells": radar["common_cells"],
+        "radar_comparator": radar["comparator"],
+        "median_target_minus_baseline_db": radar["median_target_minus_baseline_db"],
+        "radar_signatures": lens["evaluation"]["grid_signatures"],
+        "signature_policy": lens["evaluation"]["signature_policy"],
+        "independent_reference": {key: optical[key] for key in (
+            "status", "source", "epochs", "grid", "joint_usable_cells", "radar_denominator_cells",
+            "joint_usable_fraction", "max_offset_days", "min_joint_usable_fraction", "groups", "point_group",
+        )},
+        "regional_context": {
+            "source": "IDEAM hydrological bulletin 853",
+            "date": "2026-10-12",
+            "url": "https://ideam.gov.co/sites/default/files/prensa/boletines/2026-10-11/853_bch_octubre_12_2026_0000.pdf",
+            "scope": "Persistent inundation reported for Bajo San Jorge–La Mojana, including San Marcos municipality.",
+        },
+        "causal_attribution": None,
+        "flood_probability": None,
+        "flood_depth_m": None,
+        "limitations": [
+            "The regional bulletin provides municipality-scale context. The measurements cover a 640 m square.",
+            "The October 3 radar pass is available as context and is outside the three-pass baseline.",
+            "The optical result describes strict open-water transitions between two snapshots on the 40 m comparison grid.",
+            "Mixed water, inundation beneath vegetation, and changes between the snapshots remain unresolved.",
+            "Radar signatures describe where the backscatter met the selected thresholds. Flood probability is unavailable.",
+        ],
+    }
+    manifest = Case(id=case_id, title="La Mojana · San Marcos, Colombia", point=result["point"],
+                    grid=grid, series_key=science["series_key"], baseline_dates=lens["baseline_dates"],
+                    assessment_dates=[lens["target_date"]], status=lens["status"], evidence=evidence,
+                    layers=published_layers(case_layers(result["layers"]), assets),
+                    visualizations=published_layers(case_layers(result["visualizations"]), assets),
+                    series_url=prefix + "/series").model_dump(mode="json")
+    if (len(manifest["layers"]) != len(result["layers"])
+            or len(manifest["visualizations"]) != len(result["visualizations"])):
+        raise ValueError("The San Marcos case is missing a display or numeric layer.")
+    write_json(destination / "manifest.json", manifest)
+    write_json(destination / "assets.json", assets)
+    write_json(destination / "series.json", {
+        "api_version": "2.0", "point": result["point"], "observations": observations,
+        "observation_noise_db": None, "gp_conditional_latent_band_db": None,
+    })
+    return manifest
+
+
+def append_san_marcos(base, output, source):
+    cases = read(base / "index.json")
+    if any(case["id"] == "san-marcos" for case in cases):
+        raise ValueError("The base bundle already contains San Marcos.")
+    if output.exists():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=output.parent) as work:
+        bundle = Path(work) / output.name
+        copytree(base, bundle)
+        cases.append(prepare_san_marcos(source, bundle))
+        write_json(bundle / "index.json", cases)
+        bundle.rename(output)
+    print(json.dumps({"cases": len(cases), "directory": str(output)}))
+
+
+def publish(destination, case_id, title, point, grid, key, before, after, status, evidence, *,
+            coherence_index=0, layers=None):
+    prefix = f"/v2/cases/{case_id}"
+    if layers is None:
+        layers = data_layers(destination, prefix + "/layers", coherence_index=coherence_index)
+    visualizations = []
+    arrays = destination / "characterization_arrays.nc"
+    if arrays.is_file():
+        with xr.open_dataset(arrays, engine="h5netcdf") as ds:
+            visualizations = render_gcov_visualizations(destination, prefix + "/layers", gcov_dataset_frames(ds),
+                                                        after[0], (before[-1], after[0]))
+    assets = publish_files(destination, prefix + "/layers")
+    manifest = Case(id=case_id, title=title, point=point, grid=grid, series_key=key,
+                    baseline_dates=before, assessment_dates=after, status=status, evidence=evidence,
+                    layers=published_layers(layers, assets), visualizations=published_layers(visualizations, assets),
+                    series_url=prefix + "/series").model_dump(mode="json")
+    write_json(destination / "manifest.json", manifest)
+    write_json(destination / "assets.json", assets)
+    return manifest
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--choco-readiness", type=Path, help="Verified Chocó readiness job artifact directory.")
+    parser.add_argument("--base-bundle", type=Path, help="Existing published bundle to extend.")
+    parser.add_argument("--san-marcos-explore", type=Path, help="Verified San Marcos explore job artifact directory.")
+    arguments = parser.parse_args()
+    if arguments.base_bundle or arguments.san_marcos_explore:
+        if not arguments.base_bundle or not arguments.san_marcos_explore or arguments.choco_readiness:
+            parser.error("Pass --base-bundle and --san-marcos-explore together to extend a published bundle.")
+        append_san_marcos(arguments.base_bundle, arguments.output, arguments.san_marcos_explore)
+    else:
+        build(arguments.root, arguments.output, choco_readiness=arguments.choco_readiness)
