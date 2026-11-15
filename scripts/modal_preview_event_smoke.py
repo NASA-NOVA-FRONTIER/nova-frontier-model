@@ -17,12 +17,15 @@ def verify(base, *, public_reads_only=False, token=None):
         verify_job_rejected(base)
     config = json.loads((ROOT / "data/event_release.json").read_bytes())
     with urlopen(base + "/v2/events/checksums.json", timeout=60) as response:
-        if sha256(response.read()).hexdigest() != config["checksums_sha256"]:
-            raise ValueError("Gateway is serving a different event release")
-    index = request(base + "/v2/events.index.json")
-    local = json.loads((ROOT / "data/events.index.json").read_bytes())
-    if index != local:
-        raise ValueError("Deployed event index differs from the tracked catalog")
+        checksum_bytes = response.read()
+    if sha256(checksum_bytes).hexdigest() != config["checksums_sha256"]:
+        raise ValueError("Gateway is serving a different event release")
+    expected = json.loads(checksum_bytes)["files"]["events.index.json"]
+    with urlopen(base + "/v2/events.index.json", timeout=60) as response:
+        index_bytes = response.read()
+    if sha256(index_bytes).hexdigest() != expected:
+        raise ValueError("Deployed event index differs from the verified release")
+    index = json.loads(index_bytes)
     cases = {case["id"]: case for case in request(base + "/v2/cases")}
     if set(cases) != {case["id"] for case in index["events"]}:
         raise ValueError("The gateway served a different set of case manifests")

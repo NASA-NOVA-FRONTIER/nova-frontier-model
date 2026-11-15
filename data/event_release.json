@@ -1,7 +1,7 @@
 {
-  "release": "cases-event-catalog-20261114",
-  "asset_url": "https://github.com/NASA-NOVA-FRONTIER/nova-frontier-model/releases/download/events-20261114/nisar-event-cases-20261114.zip",
-  "archive_bytes": 471663326,
-  "archive_sha256": "af9aca2e1062f548813806a2e230cdac52367617aba77a817b0cee85b189f8c3",
-  "checksums_sha256": "5e6ec7293e1d6553a5b008c4cd7ab3b422dad7d20bc6dfa89674f6a8e51b886b"
+  "release": "cases-event-catalog-20261115-r1",
+  "asset_url": "https://github.com/NASA-NOVA-FRONTIER/nova-frontier-model/releases/download/events-20261115/nisar-phenomena-20261115-r1.zip",
+  "archive_bytes": 562132536,
+  "archive_sha256": "2aed2da5b84d6ef39b45409c1814ef40f4994bba171c4aa40dbed5d0ca566107",
+  "checksums_sha256": "f526b6c34a766fc8c37cef67e90794d18ea335419e91cd1402ddbbb2167ae83d"
 }
