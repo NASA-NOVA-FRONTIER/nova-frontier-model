@@ -9,7 +9,7 @@ The library has 52 case windows, including 40 additions. Categories can share a 
 
 | Phenomenon | Related case windows | Featured stop or example |
 | --- | ---: | --- |
-| Earthquake | 3 | **Chocó** shows measured InSAR coherence and wrapped phase. |
+| Earthquake | 3 | **Chocó** shows measured InSAR coherence and missing shared phase support. Kumamoto includes a wrapped-phase visualization. |
 | Wildfire | 9 | **Bug Fire** shows cross-polarization change and mapped reference support. |
 | Deforestation context | 4 | **Pará event 02** shows a measured vegetation-disturbance signal. Forest conversion is unverified. |
 | Flood | 22 | **La Mojana, San Marcos** shows measured flood signatures and optical comparison where supported. |
