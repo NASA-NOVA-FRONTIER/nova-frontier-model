@@ -54,8 +54,13 @@ jobs:
       NISAR_VOLUME: nova-frontier-chip-cache-preview
       NISAR_EVENT_RELEASE: "1"
       NISAR_EARTHDATA_SECRET: nova-frontier-earthdata
-      NISAR_MAX_ACTIVE_JOBS: "1"
-      NISAR_WORKER_CONTAINERS: "1"
+      NISAR_MAX_ACTIVE_JOBS: "8"
+      NISAR_WORKER_CONTAINERS: "8"
+      NISAR_WORKER_CPU: "2"
+      NISAR_WORKER_CPU_LIMIT: "4"
+      NISAR_WORKER_MEMORY_MB: "4096"
+      NISAR_WORKER_BUFFER_CONTAINERS: "1"
+      NISAR_WORKER_SCALEDOWN_SECONDS: "30"
       NISAR_JOBS_PER_DAY: "20"
       NISAR_JOBS_PER_IP_DAY: "20"
       NISAR_WORKER_TIMEOUT_SECONDS: "420"
@@ -96,6 +101,21 @@ jobs:
         run: |
           GATEWAY_URL=$(python -c 'import os, modal; print(modal.Function.from_name(os.environ["NISAR_APP_NAME"], "api", environment_name="main").get_web_url())')
           echo "url=$GATEWAY_URL" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import os
+          import modal
+
+          worker = modal.Function.from_name(os.environ["NISAR_APP_NAME"], "worker", environment_name="main")
+          actual = worker.autoscaler.settings()
+          expected = {
+              "max_containers": int(os.environ["NISAR_WORKER_CONTAINERS"]),
+              "buffer_containers": int(os.environ["NISAR_WORKER_BUFFER_CONTAINERS"]),
+              "scaledown_window": int(os.environ["NISAR_WORKER_SCALEDOWN_SECONDS"]),
+          }
+          for name, value in expected.items():
+              assert getattr(actual, name) == value, (name, getattr(actual, name), value)
+          print(f"Worker autoscaler: {actual}")
+          PY
           GATEWAY_URL="$GATEWAY_URL" python scripts/modal_preview_smoke.py
           python scripts/modal_preview_event_smoke.py "$GATEWAY_URL"
       - name: Comment on the pull request

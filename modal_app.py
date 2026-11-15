@@ -36,6 +36,10 @@ MAX_ACTIVE_JOBS = int(os.environ.get("NISAR_MAX_ACTIVE_JOBS", "2"))
 JOBS_PER_DAY = int(os.environ.get("NISAR_JOBS_PER_DAY", "12"))
 JOBS_PER_IP_DAY = int(os.environ.get("NISAR_JOBS_PER_IP_DAY", "5"))
 WORKER_CONTAINERS = int(os.environ.get("NISAR_WORKER_CONTAINERS", "1"))
+WORKER_BUFFER_CONTAINERS = int(os.environ.get("NISAR_WORKER_BUFFER_CONTAINERS", "0"))
+WORKER_SCALEDOWN_SECONDS = int(os.environ.get("NISAR_WORKER_SCALEDOWN_SECONDS", "10"))
+WORKER_CPU = int(os.environ.get("NISAR_WORKER_CPU", "1"))
+WORKER_CPU_LIMIT = int(os.environ.get("NISAR_WORKER_CPU_LIMIT", str(WORKER_CPU)))
 # A worker killed by this timeout never writes its own failure, so the job lease must outlive it.
 WORKER_TIMEOUT_SECONDS = int(os.environ.get("NISAR_WORKER_TIMEOUT_SECONDS", "240"))
 JOB_LEASE_SECONDS = int(os.environ.get("NISAR_JOB_LEASE_SECONDS", str(WORKER_TIMEOUT_SECONDS + 120)))
@@ -98,6 +102,11 @@ runtime_config = {
     "NISAR_WORKER_TIMEOUT_SECONDS": str(WORKER_TIMEOUT_SECONDS),
     "NISAR_JOB_LEASE_SECONDS": str(JOB_LEASE_SECONDS),
     "NISAR_GCOV_READER": GCOV_READER, "NISAR_GCOV_POSTING_M": GCOV_POSTING,
+    "NISAR_WORKER_CONTAINERS": str(WORKER_CONTAINERS),
+    "NISAR_WORKER_BUFFER_CONTAINERS": str(WORKER_BUFFER_CONTAINERS),
+    "NISAR_WORKER_SCALEDOWN_SECONDS": str(WORKER_SCALEDOWN_SECONDS),
+    "NISAR_WORKER_CPU": str(WORKER_CPU), "NISAR_WORKER_CPU_LIMIT": str(WORKER_CPU_LIMIT),
+    "NISAR_WORKER_MEMORY_MB": str(WORKER_MEMORY_MB),
 }
 package = ROOT / "src" / "surface_dynamics"
 MOCK_HTML = "/opt/nisar/observation-mock.html"
@@ -126,16 +135,16 @@ worker_image = (
                     extra_index_url="https://download.pytorch.org/whl/cpu",
                     extra_options="--index-strategy unsafe-best-match")
     .uv_pip_install(*DEPS)
-    .env(runtime_config)
+    .env({**runtime_config, "OMP_NUM_THREADS": str(WORKER_CPU), "OPENBLAS_NUM_THREADS": str(WORKER_CPU)})
     .add_local_dir(package, "/opt/nisar/surface_dynamics")
     .add_local_dir(ROOT / "models" / "global_explorer_v2", "/opt/nisar/models/global_explorer_v2")
 )
 
 
-@app.function(image=worker_image, volumes={str(STORAGE): volume}, cpu=(1.0, 1.0),
+@app.function(image=worker_image, volumes={str(STORAGE): volume}, cpu=(WORKER_CPU, WORKER_CPU_LIMIT),
               memory=(WORKER_MEMORY_MB, WORKER_MEMORY_MB),
               timeout=WORKER_TIMEOUT_SECONDS, max_containers=WORKER_CONTAINERS,
-              scaledown_window=10, retries=0,
+              buffer_containers=WORKER_BUFFER_CONTAINERS, scaledown_window=WORKER_SCALEDOWN_SECONDS, retries=0,
               secrets=[modal.Secret.from_name(SECRET_NAME, required_keys=["EARTHDATA_TOKEN"])])
 def worker(body, job_id):
     from surface_dynamics.service_state import plain_json
