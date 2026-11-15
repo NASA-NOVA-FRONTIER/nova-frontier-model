@@ -60,6 +60,83 @@
       "items": {
         "$ref": "#/$defs/event"
       }
+    },
+    "phenomena": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "case_ids",
+          "note"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "case_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "feature_examples": {
+      "type": "object",
+      "required": [
+        "analysis",
+        "fingerprint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "analysis": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/id"
+        },
+        "dmd": {
+          "$ref": "#/$defs/id"
+        },
+        "umap": {
+          "$ref": "#/$defs/id"
+        },
+        "analogs": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_code_sha",
+        "builder_sha256",
+        "recipe_sha256",
+        "base_checksums_sha256"
+      ],
+      "properties": {
+        "source_code_sha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "builder_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "recipe_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "base_checksums_sha256": {
+          "$ref": "#/$defs/hash"
+        }
+      }
     }
   },
   "$defs": {
@@ -283,7 +360,8 @@
             "insar",
             "agriculture",
             "wildfire",
-            "vegetation_disturbance"
+            "vegetation_disturbance",
+            "observed_dynamics"
           ]
         },
         "teaches": {

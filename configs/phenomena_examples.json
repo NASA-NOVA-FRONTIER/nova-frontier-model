@@ -1,0 +1,294 @@
+{
+  "base_checksums_sha256": "5e6ec7293e1d6553a5b008c4cd7ab3b422dad7d20bc6dfa89674f6a8e51b886b",
+  "tour_order": [
+    "choco",
+    "bug-fire",
+    "para-event-02",
+    "san-marcos",
+    "niscemi-aftermath"
+  ],
+  "coverage": {
+    "earthquakes": {
+      "case_ids": [
+        "choco",
+        "kumamoto",
+        "venezuela-insar"
+      ],
+      "note": "Observed intervals, coherence, phase and correction readiness. Validated LOS remains null."
+    },
+    "wildfires": {
+      "case_ids": [
+        "bug-fire",
+        "timber-fire",
+        "weiser-knoll",
+        "deliblato",
+        "fire-emsr913",
+        "fire-emsr914",
+        "fire-emsr918",
+        "fire-emsr920",
+        "fire-emsr931"
+      ],
+      "note": "Repeated cross-pol change and event context. Burned area and cause remain unestimated."
+    },
+    "deforestation": {
+      "case_ids": [
+        "para-event-02",
+        "para-event-01",
+        "mato-grosso-event-01",
+        "rowe-creek"
+      ],
+      "note": "Measured vegetation-disturbance examples. Permanent conversion and classifier accuracy remain unverified."
+    },
+    "floods": {
+      "case_ids": [
+        "san-marcos",
+        "qadirabad",
+        "chokwe",
+        "richmond",
+        "barh",
+        "ndioum",
+        "pursat-west",
+        "crete-tzermiado",
+        "crete-tzermiado-optical",
+        "baja-optical-null"
+      ],
+      "note": "Signed backscatter, diagnostic signatures and dated independent evidence where supported."
+    },
+    "landslides": {
+      "case_ids": [
+        "niscemi-aftermath"
+      ],
+      "note": "Aftermath-only acquisitions starting in June. The January landslide is outside the visible radar bracket."
+    },
+    "agriculture": {
+      "case_ids": [
+        "skollersta",
+        "palouse",
+        "rabelov",
+        "gotland",
+        "platte-valley",
+        "forest-river"
+      ],
+      "note": "Measured focal-versus-annulus examples and a training-region backscatter history. Crop type and health remain unestimated."
+    },
+    "volcanoes": {
+      "case_ids": [
+        "kilauea-insar"
+      ],
+      "note": "One measured GUNW pair for phase and coherence. Eruption attribution and motion remain unestimated."
+    },
+    "wetlands": {
+      "case_ids": [
+        "pantanal",
+        "san-marcos",
+        "pursat-west",
+        "podor"
+      ],
+      "note": "Measured scattering histories and optical comparisons where supported."
+    },
+    "subsidence": {
+      "case_ids": [
+        "mexico-city-insar"
+      ],
+      "note": "One measured GUNW pair. Reference stability, corrected displacement and vertical rate remain unverified."
+    },
+    "ice": {
+      "case_ids": [],
+      "note": "No verified ice-targeted measurement was found in the inspected case sources. GOFF is outside the implemented worker contract."
+    }
+  },
+  "cubes": [
+    {
+      "id": "niscemi-aftermath",
+      "title": "Niscemi landslide aftermath, Italy",
+      "lens": "observed_dynamics",
+      "role": "training-region for the Transformer",
+      "cube": "products/cubes/niscemi.npz",
+      "point": [
+        14.38,
+        37.15
+      ],
+      "baseline_end_date": "2026-08-11",
+      "teaches": "Available radar passes begin months after the January 25 landslide. The baseline and target are both aftermath observations.",
+      "reference": {
+        "source": "https://www.protezionecivile.gov.it/en/notizia/niscemi-landslide-national-service-efforts-continue/index.html",
+        "event_date": "2026-01-25",
+        "status": "aftermath_only"
+      }
+    },
+    {
+      "id": "deliblato",
+      "title": "Deliblato Sands fire vicinity, Serbia",
+      "lens": "wildfire",
+      "role": "training-region for the Transformer",
+      "cube": "products/cubes/deliblato.npz",
+      "point": [
+        21.1,
+        44.85
+      ],
+      "baseline_end_date": "2026-07-24",
+      "teaches": "Measured HH/HV history brackets the reported fire. The window has no independently mapped burn population.",
+      "reference": {
+        "source": "https://www.esa.int/ESA_Multimedia/Images/2026/08/Wildfire_damage_east_of_Belgrade_Serbia",
+        "event_date": "2026-08-02",
+        "status": "regional_context"
+      }
+    },
+    {
+      "id": "forest-river",
+      "title": "Forest River, North Dakota",
+      "lens": "observed_dynamics",
+      "role": "training-region for the Transformer",
+      "cube": "products/global_v2/cubes/forest_river.npz",
+      "point": [
+        -97.7,
+        48.2
+      ],
+      "baseline_end_date": "2026-08-20",
+      "teaches": "Use this measured cropland-region history to explore co-/cross-pol changes. Local management timing is unresolved."
+    },
+    {
+      "id": "pantanal",
+      "title": "Pantanal wetland, Brazil",
+      "lens": "observed_dynamics",
+      "role": "held-out test",
+      "cube": "products/global_v2/cubes/pantanal.npz",
+      "point": [
+        -56.8,
+        -17.9
+      ],
+      "baseline_end_date": "2026-09-03",
+      "teaches": "Eight supported passes illustrate wetland backscatter and the frozen Transformer geographic test. Interpolation was slightly better."
+    },
+    {
+      "id": "hokkaido",
+      "title": "Hokkaido geographic test, Japan",
+      "lens": "observed_dynamics",
+      "role": "held-out test",
+      "cube": "products/global_v2/cubes/hokkaido.npz",
+      "point": [
+        142.5,
+        43.5
+      ],
+      "baseline_end_date": null,
+      "teaches": "Measured history for a frozen Transformer reconstruction test. Interpolation and the GP baseline outperformed it."
+    },
+    {
+      "id": "wheatbelt",
+      "title": "Wheatbelt control, Western Australia",
+      "lens": "observed_dynamics",
+      "role": "stable control",
+      "cube": "products/characterization_v05/cases/wheatbelt/cube.npz",
+      "point": [
+        117.5,
+        -31.5
+      ],
+      "baseline_end_date": null,
+      "teaches": "Measured baseline departure and physical fingerprint. The control includes a small optical new-water group."
+    }
+  ],
+  "holdouts": [
+    {
+      "id": "rabelov",
+      "title": "Råbelöv wheat trial, Sweden",
+      "lens": "agriculture",
+      "path": "scratch/exploration-holdout-v2/measured/rabelov_wheat",
+      "baseline_end_date": "2026-07-19",
+      "teaches": "The Aug 3 recorded harvest is bracketed by July 19 and Aug 12. The full harvested footprint is unresolved."
+    },
+    {
+      "id": "gotland",
+      "title": "Gotland wheat trial, Sweden",
+      "lens": "agriculture",
+      "path": "scratch/exploration-holdout-v2/measured/gotland_wheat",
+      "baseline_end_date": "2026-07-27",
+      "teaches": "The Aug 16 trial harvest falls between July 27 and Aug 20. The measured focal contrast was small."
+    },
+    {
+      "id": "platte-valley",
+      "title": "Platte Valley comparison, Nebraska",
+      "lens": "agriculture",
+      "path": "scratch/exploration-holdout-v1/platte_valley",
+      "baseline_end_date": "2026-08-20",
+      "teaches": "The focal-versus-annulus comparison uses five passes. The prior mapped land cover provides context for the point."
+    },
+    {
+      "id": "timber-fire",
+      "title": "Timber Fire vicinity, California",
+      "lens": "wildfire",
+      "path": "scratch/exploration-holdout-v1/timber_fire_context",
+      "baseline_end_date": "2026-08-07",
+      "teaches": "The measured HV persistence rule and separately dated OPERA vegetation-loss comparison have different support."
+    },
+    {
+      "id": "weiser-knoll",
+      "title": "Weiser Knoll fire vicinity, Wyoming",
+      "lens": "wildfire",
+      "path": "scratch/exploration-holdout-v2/weiser-track-check/measured/weiser",
+      "baseline_end_date": "2026-08-08",
+      "teaches": "The first track returned no usable pixels. This is the measured alternate-track comparison."
+    },
+    {
+      "id": "crete-tzermiado",
+      "title": "Tzermiado flood / Sentinel-1 comparison, Crete",
+      "lens": "flood_wetland",
+      "path": "scratch/exploration-holdout-v2/measured/tzermiado",
+      "baseline_end_date": "2026-09-22",
+      "teaches": "The Oct 4 NISAR pass followed the mapped Sentinel-1 observation by about 53 minutes."
+    },
+    {
+      "id": "crete-tzermiado-optical",
+      "title": "Tzermiado flood / optical comparison, Crete",
+      "lens": "flood_wetland",
+      "path": "scratch/exploration-holdout-v2/measured/tzermiado_optical",
+      "baseline_end_date": "2026-09-27",
+      "teaches": "This is a second observation window for the same flood. NISAR followed the mapped GeoEye-1 observation by about 32 hours."
+    },
+    {
+      "id": "baja-optical-null",
+      "title": "Baja California Sur flood-context comparison",
+      "lens": "flood_wetland",
+      "path": "scratch/exploration-holdout-v1/baja_flood_context",
+      "baseline_end_date": "2026-08-16",
+      "teaches": "The optical snapshots preserved 179 usable comparison cells, all stable nonwater."
+    }
+  ],
+  "land_change": [
+    {
+      "id": "para-event-01",
+      "title": "Pará event 01, Brazil",
+      "path": "para-br-01-event-01",
+      "baseline_end_date": "2026-07-15",
+      "role": "development case"
+    },
+    {
+      "id": "para-event-02",
+      "title": "Pará event 02, Brazil",
+      "path": "para-br-01-event-02",
+      "baseline_end_date": "2026-07-15",
+      "role": "development case"
+    },
+    {
+      "id": "mato-grosso-event-01",
+      "title": "Mato Grosso event 01, Brazil",
+      "path": "mato-grosso-br-01-event-01",
+      "baseline_end_date": "2026-07-15",
+      "role": "development case"
+    }
+  ],
+  "flood_cohorts": [
+    "flood_evidence_a",
+    "flood_evidence_b",
+    "flood_similarity_holdout"
+  ],
+  "feature_cases": {
+    "analysis": [
+      "pantanal",
+      "hokkaido"
+    ],
+    "fingerprint": "wheatbelt",
+    "dmd": "forest-river",
+    "umap": "pantanal",
+    "analogs": "pursat-west"
+  }
+}

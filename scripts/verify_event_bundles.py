@@ -13,6 +13,7 @@ import requests
 
 from prepare_event_bundles import NULLS, files, pilot_headlines, raster_grid, read
 from surface_dynamics.io import local_neighborhood, point_location
+from surface_dynamics.network import acquisition_dates
 from surface_dynamics.service_artifacts import checksum, write_json
 from surface_dynamics.service_contracts import Case, JobRequest, canonical_job
 
@@ -46,6 +47,8 @@ def verify_disk(folder, legacy=None):
     ids = [r["id"] for r in index["events"]]
     require(len(ids) == len(set(ids)) and set(index["tour_order"]) <= set(ids), "Invalid tour order")
     require([r["id"] for r in read(folder / "index.json")] == ids, "v2 case order differs")
+    for group in index.get("phenomena", {}).values():
+        require(set(group["case_ids"]) <= set(ids), "Phenomenon links to unavailable cases")
     for row in index["events"]:
         case_id = row["id"]
         case = folder / case_id
@@ -69,11 +72,14 @@ def verify_disk(folder, legacy=None):
                 with rasterio.open(case / Path(layer["cog_url"]).name) as raster:
                     require(raster.tags(ns="IMAGE_STRUCTURE").get("LAYOUT") == "COG", "Raster is not a COG")
                     near(transform_bounds(raster.crs, "EPSG:4326", *raster.bounds), layer["bounds"])
+        for item in series.get("model_features", {}).get("artifacts", []):
+            name = Path(item["href"]).name
+            require(item["sha256"] == assets[name]["sha256"] == file_map[name], "Feature asset checksum mismatch")
         point, area = series["point_readout"], series["area_readout"]
         if row["series_kind"] == "measured_gamma0":
             verify_gcov(case, manifest, series, point, area, legacy)
         else:
-            verify_insar(case, point, area)
+            verify_insar(case, series, point, area)
         if row["replay"]:
             item = row["replay"]
             key, body = canonical_job(JobRequest.model_validate(item["request"]), index["build_revision"])
@@ -182,7 +188,11 @@ def verify_fire_reference(raster, flag, common, area, legacy):
 
 
 
-def verify_insar(folder, point, area):
+def verify_insar(folder, series, point, area):
+    require(point["los_displacement_cm"] is None and area["los_displacement_cm"] is None, "LOS must stay null")
+    if folder.name not in ("kumamoto", "choco"):
+        verify_pair_rasters(folder, series, point, area)
+        return
     import xarray as xr
 
     expected = {"kumamoto": (35344, 1614, 3), "choco": (3844, 0, 0)}[folder.name]
@@ -214,6 +224,31 @@ def verify_insar(folder, point, area):
                     np.testing.assert_allclose(raster.read(1), expected_phase, atol=1e-6, rtol=0, equal_nan=True)
     require(point["los_displacement_cm"] is None and area["los_displacement_cm"] is None, "LOS must stay null")
 
+
+def verify_pair_rasters(folder, series, point, area):
+    coherence, phase = [], []
+    for i, row in enumerate(series["intervals"], 1):
+        with rasterio.open(folder / f"coherence_pair_{i}.tif") as raster:
+            coherence.append(raster.read(1))
+        with rasterio.open(folder / f"wrapped_phase_pair_{i}.tif") as raster:
+            phase.append(raster.read(1))
+        days = list(acquisition_dates(row["source_id"]))
+        require(days == [row["reference_date"], row["secondary_date"]] == area["intervals"][i - 1]["dates"],
+                "InSAR dates differ from granule identity")
+    common = np.isfinite(coherence).all(axis=0)
+    require((int(common.sum()), int(common.size)) == (area["denominator"], area["total_cells"]),
+            "Common coherence support mismatch")
+    for index, (coh, rad) in enumerate(zip(coherence, phase, strict=True)):
+        finite = coh[np.isfinite(coh)]
+        require(finite.size > 0 and np.all((finite >= 0) & (finite <= 1)), "Invalid coherence")
+        require(np.all(np.abs(rad[np.isfinite(rad)]) <= np.pi + 1e-6), "Invalid wrapped phase")
+        near(area["intervals"][index]["common_coherence"]["median"], float(np.median(coh[common])))
+        for raster, field in ((coh, "coherence"), (rad, "wrapped_phase_rad")):
+            v = raster[tuple(point["pixel"])]
+            near(point["intervals"][index][field], float(v) if np.isfinite(v) else None)
+    if len(phase) > 1:
+        require(int(np.isfinite(phase).all(axis=0).sum()) == area["shared_phase_cells"],
+                "Common phase support mismatch")
 
 def verify_http(client, folder, *, replay_only=False):
     catalog = read(folder / "events.index.json")
