@@ -104,9 +104,10 @@ MOCK_HTML = "/opt/nisar/observation-mock.html"
 gateway_secrets = []
 if JOB_AUTH_SECRET_NAME:
     gateway_secrets.append(modal.Secret.from_name(JOB_AUTH_SECRET_NAME, required_keys=[JOB_AUTH_SECRET_KEY]))
-if PREVIEW_JOB_AUTH and modal.is_local():
-    if not os.environ.get(JOB_AUTH_SECRET_KEY):
+if PREVIEW_JOB_AUTH:
+    if modal.is_local() and not os.environ.get(JOB_AUTH_SECRET_KEY):
         raise ValueError("Preview job authentication requires an ephemeral credential.")
+    # Modal reconstructs the same Secret dependency when loading the remote Function.
     gateway_secrets.append(modal.Secret.from_local_environ([JOB_AUTH_SECRET_KEY]))
 gateway_image = (
     common.uv_pip_install(*DEPS)
