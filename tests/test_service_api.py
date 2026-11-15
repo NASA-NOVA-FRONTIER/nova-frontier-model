@@ -1,6 +1,7 @@
 import json
 from hashlib import sha256
 from pathlib import Path
+from secrets import token_urlsafe
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
@@ -40,6 +41,45 @@ class ApiTests(TestCase):
         self.assertEqual(self.client.get(first["status_url"]).json()["status"], "succeeded")
         response = self.client.post("/v2/jobs", json=BODY)
         self.assertEqual((response.status_code, response.json()["cache"]), (200, "hit"))
+
+    def test_job_auth_rejects_before_body_validation_or_admission(self):
+        credential = token_urlsafe(32)
+        client = TestClient(create_app(self.root, self.jobs, job_shared_secret=credential))
+        for headers in ([], [("Authorization", "Bearer wrong-test-token")],
+                        [("Authorization", b"Bearer \xff")],
+                        [("Authorization", f"Bearer {credential}"), ("Authorization", "Bearer duplicate")]):
+            reply = client.post("/v2/jobs", json=BODY, headers=headers)
+            self.assertEqual((reply.status_code, reply.json()["code"]), (401, "unauthorized"))
+            self.assertEqual(reply.headers["www-authenticate"], "Bearer")
+            self.assertEqual(reply.headers["cache-control"], "no-store")
+        self.assertEqual(client.post("/v2/jobs", json={}).status_code, 401)
+        self.assertEqual(client.post("/v2/jobs/", json=BODY, follow_redirects=False).status_code, 401)
+        mounted = TestClient(create_app(self.root, self.jobs, job_shared_secret=credential), root_path="/gateway")
+        self.assertEqual(mounted.post("/gateway/v2/jobs", json=BODY).status_code, 401)
+        self.assertEqual(self.state, {})
+        self.assertEqual(self.calls, [])
+
+    def test_job_auth_accepts_valid_credentials_and_keeps_reads_public(self):
+        credential = token_urlsafe(32)
+        client = TestClient(create_app(self.root, self.jobs, job_shared_secret=credential))
+        folder = self.root / "cases"
+        folder.mkdir()
+        (folder / "index.json").write_text("[]", encoding="utf-8")
+
+        reply = client.post("/v2/jobs", json=BODY, headers={"Authorization": f"Bearer {credential}"})
+        self.assertEqual(reply.status_code, 202)
+        self.assertEqual(len(self.calls), 1)
+        self.assertNotIn(credential, repr(self.calls))
+        self.assertEqual(client.get(reply.json()["status_url"]).json()["job_id"], reply.json()["job_id"])
+        for path in ("/health", "/v2/capabilities", "/v2/cases"):
+            self.assertEqual(client.get(path).status_code, 200)
+        self.assertEqual(client.post("/v2/jobs", json=BODY).status_code, 401)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_job_auth_rejects_an_empty_or_malformed_configured_secret(self):
+        for value in ("", " \t", "not a single token", "tökén"):
+            with self.assertRaisesRegex(ValueError, "non-empty ASCII bearer token"):
+                create_app(self.root, self.jobs, job_shared_secret=value)
 
     def test_error_paths_and_limits(self):
         for field, value in [("EARTHDATA_TOKEN", "forbidden"), ("longitude", 181),

@@ -61,6 +61,7 @@ jobs:
       NISAR_WORKER_TIMEOUT_SECONDS: "420"
       NISAR_GCOV_READER: "pyfive"
       NISAR_GCOV_POSTING_M: "40"
+      NISAR_PREVIEW_JOB_AUTH: "1"
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -78,6 +79,12 @@ jobs:
         run: python -m pip install modal==1.6.4
       - name: Install measured event release
         run: python -m modal run --env main scripts/install_event_release.py
+      - name: Configure preview-only job authentication
+        shell: bash
+        run: |
+          token="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$token"
+          echo "NISAR_GATEWAY_SHARED_SECRET=$token" >> "$GITHUB_ENV"
       - name: Deploy the preview app
         run: python -m modal deploy --env main modal_app.py
       - name: Smoke test the preview
@@ -96,7 +103,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ steps.smoke.outcome }}" = "success" ]; then
-            result="✅ Deployed and smoke-tested at \`${GITHUB_SHA:0:7}\`: health, limits, InSAR, Chocó GCOV and event replays passed."
+            result="✅ Deployed and smoke-tested at \`${GITHUB_SHA:0:7}\`: health, limits, job authentication, InSAR, Chocó GCOV and event replays passed."
           else
             result="❌ The preview deploy or its smoke test failed at \`${GITHUB_SHA:0:7}\`; see the run for the log."
           fi
