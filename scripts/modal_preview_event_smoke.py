@@ -1,17 +1,20 @@
 """Smoke-test measured cases and pinned replays on a deployed gateway."""
+import argparse
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
-import sys
 from urllib.request import Request, urlopen
 
-from modal_preview_smoke import request
+from modal_preview_smoke import request, verify_job_rejected
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def verify(base):
+def verify(base, *, public_reads_only=False, token=None):
     base = base.rstrip("/")
+    if public_reads_only:
+        verify_job_rejected(base)
     config = json.loads((ROOT / "data/event_release.json").read_bytes())
     with urlopen(base + "/v2/events/checksums.json", timeout=60) as response:
         if sha256(response.read()).hexdigest() != config["checksums_sha256"]:
@@ -27,10 +30,14 @@ def verify(base):
         if row["replay"] is None:
             continue
         replay = row["replay"]
-        job = request(base + "/v2/jobs", replay["request"])
+        status_url = f"/v2/jobs/{replay['job_id']}"
+        if public_reads_only:
+            job = request(base + status_url)
+        else:
+            job = request(base + "/v2/jobs", replay["request"], token=token)
         if (job["status"], job["cache"], job["job_id"]) != ("succeeded", "hit", replay["job_id"]):
             raise ValueError(f"Expected an immediate pinned replay for {row['id']}")
-        if request(base + job["status_url"])["result"] != job["result"]:
+        if not public_reads_only and request(base + status_url)["result"] != job["result"]:
             raise ValueError(f"Poll result differs for {row['id']}")
     sample = cases["qadirabad"]
     series = request(base + sample["series_url"])
@@ -44,4 +51,9 @@ def verify(base):
 
 
 if __name__ == "__main__":
-    verify(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("url")
+    parser.add_argument("--public-reads-only", action="store_true")
+    options = parser.parse_args()
+    token = os.environ["NISAR_GATEWAY_SHARED_SECRET"] if os.environ.get("NISAR_PREVIEW_JOB_AUTH") == "1" else None
+    verify(options.url, public_reads_only=options.public_reads_only, token=token)

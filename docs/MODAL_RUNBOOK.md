@@ -83,6 +83,15 @@ for each scene's cache state, HTTP requests, bytes and range batches, and
 gateway elapsed time. Browser click-to-layer latency requires a separate measurement
 through Explorer and the application backend.
 
+## Roll out job submission authentication
+
+1. Provision a strong random bearer token as `NISAR_GATEWAY_SHARED_SECRET` in a dedicated Modal Secret. Configure the same value in Railway's backend service via its secret settings. Keep the token out of workflow variables, URLs, browser code, terminal arguments and logs. Only the Modal gateway needs the Modal Secret.
+2. Deploy the backend from [Backend #2](https://github.com/NASA-NOVA-FRONTIER/nova-frontier-backend/issues/2) with `Authorization: Bearer <shared token>` on gateway job submissions while gateway enforcement is disabled. Verify a real exploration through the deployed Railway backend and confirm that its job client sends the configured credential.
+3. Set the GitHub repository variable `NISAR_GATEWAY_AUTH_SECRET_NAME` to the Modal Secret resource **name** in the production `main` environment, then run **Deploy to Modal** on `main`. An empty variable leaves authentication disabled. A named secret with a missing or invalid token prevents the gateway from starting.
+4. Verify another real Railway exploration goes from submission to result. Deployment smoke checks also require an unauthenticated job request to return HTTP 401 and public case, replay polling and artifact reads to work. The pull request preview performs bearer-authenticated job and replay submissions with its own short-lived credential.
+
+If Railway submissions fail after activation, clear the GitHub variable and redeploy the same build. Railway can continue sending its credential during rollback. The mock at `/mock` can browse public reads, but live submissions from it require the application backend.
+
 ## Check usage and limits
 
     python -m modal billing summary
@@ -90,7 +99,7 @@ through Explorer and the application backend.
     python -m modal container list
     python -m modal app logs nova-frontier-model --env main
 
-The public gateway has one container with a 0.25 physical-core CPU ceiling and 512 MiB memory ceiling. The worker has one CPU container and no GPU. One job can execute and one can queue. The service admits at most 12 new jobs per UTC day and five per client IP per day. A worker runs for at most 240 seconds. General traffic has a per-IP request limit of 120/minute. Published assets are bounded per file and the service allows up to 1 GiB of artifact transfer per UTC day. Limit state is in Modal Dict except for the gateway's minute-level IP counters. The cache is checked before new-work quotas. CORS governs browser origin and the service is public.
+The gateway has one container with a 0.25 physical-core CPU ceiling and 512 MiB memory ceiling. The CPU worker defaults to one container, two admitted jobs, 12 new jobs per UTC day, five per IP per day and a 240-second job timeout. The production workflow sets five worker containers, five admitted jobs, 300 new jobs per UTC day, 300 per IP per day and a 420-second timeout. Confirm the live daily quotas and timeout at `GET /v2/capabilities`. General traffic has a per-IP request limit of 120/minute. Published assets are bounded per file and the service allows up to 1 GiB of artifact transfer per UTC day. Limit state is in Modal Dict except for the gateway's minute-level IP counters. The cache is checked before new-work quotas.
 
 At list rates, a four-minute worker at 1 core and 2 GiB is approximately $0.0042 in reserved-resource compute. Even 12 fully timed-out jobs/day over a 31-day month would be about $1.57 on that model. A continuously active gateway at the stated CPU and RAM ceilings for 31 days would be about $11.75. These are conservative compute-only estimates before credits. Startup, image builds, idle windows, actual metering and other workspace workloads affect the bill. The Workspace usage limit is the outer billing control. Review it in Usage & Billing. [Pricing](https://modal.com/pricing) · [Budgets](https://modal.com/docs/guide/budgets)
 

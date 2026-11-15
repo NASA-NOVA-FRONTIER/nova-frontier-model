@@ -20,6 +20,11 @@ SECRET_NAME = os.environ.get("NISAR_EARTHDATA_SECRET", "nova-frontier-earthdata"
 STATE_NAME = os.environ.get("NISAR_STATE_DICT", f"{APP_NAME}-jobs")
 CASES_PATH = os.environ.get("NISAR_CASES_PATH", "cases")
 CORS_ORIGINS = os.environ.get("NISAR_CORS_ORIGINS", "")
+JOB_AUTH_SECRET_NAME = os.environ.get("NISAR_GATEWAY_AUTH_SECRET_NAME", "")
+PREVIEW_JOB_AUTH = os.environ.get("NISAR_PREVIEW_JOB_AUTH") == "1"
+JOB_AUTH_SECRET_KEY = "NISAR_GATEWAY_SHARED_SECRET"
+if PREVIEW_JOB_AUTH and (JOB_AUTH_SECRET_NAME or not re.fullmatch(r"nova-frontier-model-pr-[0-9]+", APP_NAME)):
+    raise ValueError("Ephemeral job authentication is only available on numbered pull request previews.")
 EVENTS_STORAGE = Path("/event-cases")
 EVENTS_CONFIG = ROOT / "data/event_release.json"
 EVENTS_ENABLED = os.environ.get("NISAR_EVENT_RELEASE") == "1"
@@ -96,9 +101,18 @@ runtime_config = {
 }
 package = ROOT / "src" / "surface_dynamics"
 MOCK_HTML = "/opt/nisar/observation-mock.html"
+gateway_secrets = []
+if JOB_AUTH_SECRET_NAME:
+    gateway_secrets.append(modal.Secret.from_name(JOB_AUTH_SECRET_NAME, required_keys=[JOB_AUTH_SECRET_KEY]))
+if PREVIEW_JOB_AUTH and modal.is_local():
+    if not os.environ.get(JOB_AUTH_SECRET_KEY):
+        raise ValueError("Preview job authentication requires an ephemeral credential.")
+    gateway_secrets.append(modal.Secret.from_local_environ([JOB_AUTH_SECRET_KEY]))
 gateway_image = (
     common.uv_pip_install(*DEPS)
-    .env({**runtime_config, "NISAR_EVENT_RELEASE": "1" if EVENTS_ENABLED else ""})
+    .env({**runtime_config, "NISAR_EVENT_RELEASE": "1" if EVENTS_ENABLED else "",
+          "NISAR_GATEWAY_AUTH_SECRET_NAME": JOB_AUTH_SECRET_NAME,
+          "NISAR_PREVIEW_JOB_AUTH": "1" if PREVIEW_JOB_AUTH else ""})
     .add_local_dir(package, "/opt/nisar/surface_dynamics")
     .add_local_file(ROOT / "scripts" / "observation-mock" / "index.html", MOCK_HTML)
 )
@@ -155,7 +169,7 @@ def worker(body, job_id):
 
 
 @app.function(image=gateway_image, volumes=gateway_volumes, cpu=(.125, .25), memory=(256, 512),
-              timeout=20, max_containers=1, scaledown_window=5)
+              timeout=20, max_containers=1, scaledown_window=5, secrets=gateway_secrets)
 @modal.concurrent(max_inputs=16)
 @modal.asgi_app(label=APP_NAME)
 def api():
@@ -172,4 +186,6 @@ def api():
         events = EventRelease(EVENTS_STORAGE / config["release"], config["checksums_sha256"])
     return create_app(STORAGE, jobs, reload=volume.reload,
                       observation_page=Path(MOCK_HTML).read_text(encoding="utf-8"),
-                      git_sha=GIT_SHA, cases_path=CASES_PATH, events=events)
+                      git_sha=GIT_SHA, cases_path=CASES_PATH, events=events,
+                      job_shared_secret=os.environ[JOB_AUTH_SECRET_KEY] if JOB_AUTH_SECRET_NAME or PREVIEW_JOB_AUTH
+                      else None)
