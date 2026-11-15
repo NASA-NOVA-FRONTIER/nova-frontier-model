@@ -65,4 +65,4 @@ python scripts/verify_event_bundles.py $releaseDir --legacy (Join-Path $document
 python scripts/package_event_release.py $releaseDir $releaseZip
 ```
 
-The generated archive and its deployment pin are local candidate artifacts under Git-ignored `scratch`. The candidate pin records the manifest hash, ZIP digest and size, with a null asset URL pending publication. The existing production pin still points at the 12-case archive. Once the new ZIP is published as a release asset, its URL and candidate pin can be supplied to the existing deployment workflow. [Event release process](EVENT_BUNDLES.md)
+The builder writes the archive and a candidate deployment pin under Git-ignored `scratch`. The deployment uses the published archive URL, archive size, archive digest and manifest digest from `data/event_release.json`. [Expanded GitHub release](https://github.com/NASA-NOVA-FRONTIER/nova-frontier-model/releases/tag/events-20261115) · [Event release process](EVENT_BUNDLES.md)
