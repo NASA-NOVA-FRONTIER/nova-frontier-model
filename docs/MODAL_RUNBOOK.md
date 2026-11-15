@@ -92,6 +92,22 @@ through Explorer and the application backend.
 
 If Railway submissions fail after activation, clear the GitHub variable and redeploy the same build. Railway can continue sending its credential during rollback. The mock at `/mock` can browse public reads, but live submissions from it require the application backend.
 
+## Scale the worker pool
+
+The production and pull request preview workflows request two physical CPU cores
+per worker, with a burst limit of four, and 4096 MiB of memory. The worker sets
+OpenMP and OpenBLAS to the requested CPU count. Both workflows allow up to eight
+active jobs and eight worker containers, with a one-container buffer while the
+pool is active and a 30-second scaledown window. The pool can scale to zero.
+
+Keep `NISAR_MAX_ACTIVE_JOBS` and `NISAR_WORKER_CONTAINERS` aligned when resizing
+the pool. Railway has its own admission limit, so the application may need a
+separate configuration change to use the full Modal pool. Check CPU utilization,
+memory peaks, worker queue time and archive read time before raising resources
+again. A larger worker pool can serve more jobs at once. Archive latency can
+still dominate a single exploration. Workflow changes deploy from `main`. To
+roll back the capacity increase, revert the corresponding workflow settings.
+
 ## Check usage and limits
 
     python -m modal billing summary

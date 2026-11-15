@@ -3,6 +3,7 @@
 Environment: GATEWAY_URL, EXPECTED_GIT_SHA and optionally EXPECTED_JOBS_PER_DAY.
 Standard library only, so the workflow needs nothing beyond the Modal client.
 """
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 import json
 import os
@@ -102,7 +103,7 @@ def run_pair_job(base, *, token=None):
     if pair is None:
         raise SystemExit("the GUNW catalog listed no pair over Kumamoto")
     seconds, result = run_job(base, pair_job_body(pair), token=token)
-    return seconds, result["science_status"], len(result["layers"])
+    print(f"insar-pair job {result['science_status']} in {seconds} s with {len(result['layers'])} layers")
 
 
 def run_gcov_job(base, *, token=None):
@@ -151,10 +152,16 @@ def main():
         verify_job_rejected(base)
         verify_job_rejected(base, token="invalid-preview-token")
         print("Job submission rejected missing and incorrect credentials")
-    seconds, science, layers = run_pair_job(base, token=token)
-    print(f"insar-pair job {science} in {seconds} s with {layers} layers")
-    if os.environ.get("NISAR_GCOV_READER") == "pyfive" and os.environ.get("NISAR_GCOV_POSTING_M") == "40":
-        run_gcov_job(base, token=token)
+    if os.environ.get("NISAR_GCOV_READER") != "pyfive" or os.environ.get("NISAR_GCOV_POSTING_M") != "40":
+        run_pair_job(base, token=token)
+        return
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pair = pool.submit(run_pair_job, base, token=token)
+        gcov = pool.submit(run_gcov_job, base, token=token)
+        pair.result()
+        gcov.result()
+    print(f"Concurrent InSAR and GCOV smoke requests completed in {time.monotonic() - started:.1f} s")
 
 
 if __name__ == "__main__":
