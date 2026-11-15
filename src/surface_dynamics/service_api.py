@@ -2,6 +2,7 @@
 from collections import OrderedDict
 from functools import lru_cache
 from hashlib import sha256
+from hmac import compare_digest
 import json
 import os
 import re
@@ -121,7 +122,11 @@ def artifact_response(body, asset, request):
 
 
 def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str | None = None,
-               git_sha: str | None = None, cases_path: str = "cases", events=None):
+               git_sha: str | None = None, cases_path: str = "cases", events=None,
+               job_shared_secret: str | None = None):
+    if job_shared_secret is not None and not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", job_shared_secret):
+        raise ValueError("Configure a non-empty ASCII bearer token for job submission.")
+    expected_token = job_shared_secret.encode("ascii") if job_shared_secret is not None else None
     results = Results(root, reload)
     curated = Results(events.root, lambda: None) if events is not None else results
 
@@ -141,6 +146,16 @@ def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str |
     @app.middleware("http")
     async def guard(request, call_next):
         if request.method == "POST":
+            # Authorize before parsing the body or allocating work, including under an ASGI mount.
+            job_path = "/v2/jobs"
+            root_path = request.scope.get("root_path", "").rstrip("/")
+            if expected_token is not None and request.url.path.rstrip("/") in {job_path, root_path + job_path}:
+                authorization = request.headers.getlist("authorization")
+                scheme, _, token = authorization[0].partition(" ") if len(authorization) == 1 else ("", "", "")
+                if scheme.lower() != "bearer" or not compare_digest(token.encode("latin-1"), expected_token):
+                    response = problem(401, "unauthorized", "Job submission requires valid credentials.")
+                    response.headers["WWW-Authenticate"] = "Bearer"
+                    return response
             try:
                 size = int(request.headers.get("content-length", ""))
             except ValueError:
@@ -253,7 +268,8 @@ def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str |
             return Response(curated.access("checksums.json", ASSET_LIMIT), media_type="application/json",
                             headers={"Cache-Control": PUBLIC_CACHE})
 
-    @app.post("/v2/jobs", response_model=Job, status_code=202, responses={200: {"model": Job}})
+    @app.post("/v2/jobs", response_model=Job, status_code=202,
+              responses={200: {"model": Job}, 401: {"model": ApiError}})
     def submit(body: JobRequest, request: Request, response: Response):
         client = request.client.host if request.client else "unknown"
         view = events.submit(body) if events is not None else None

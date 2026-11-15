@@ -80,6 +80,13 @@ inundation beneath vegetation, flood probability and causal attribution unresolv
 
 ### Coverage and jobs
 
+When deployment enables job authentication, the application backend includes
+`Authorization: Bearer <shared token>` on `POST /v2/jobs`. Missing or invalid
+credentials receive `401` with code `unauthorized` and `WWW-Authenticate: Bearer`
+before job lookup, validation or admission. All job submissions, including replay
+requests and cache hits, use the same header. Job polling, catalog, cases and
+artifacts are public. The credential belongs in server configuration.
+
     GET /v2/coverage?longitude=-97.7&latitude=48.2&start_date=2026-10-07&end_date=2026-10-19&product=GCOV
 
 Submit the observed Forest River comparison from the science example.

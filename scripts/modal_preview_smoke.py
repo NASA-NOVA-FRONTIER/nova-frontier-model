@@ -25,12 +25,26 @@ COHERENCE_THRESHOLD = 0.35
 DONE = ("succeeded", "failed")
 
 
-def request(url, body=None):
+def request(url, body=None, *, token=None):
     data = json.dumps(body).encode() if body is not None else None
     headers = {"content-type": "application/json"} if data else {}
-    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers),
-                                timeout=REQUEST_TIMEOUT_SECONDS) as response:
+    http_request = urllib.request.Request(url, data=data, headers=headers)
+    if data is not None and token is not None:
+        http_request.add_unredirected_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(http_request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         return json.load(response)
+
+
+def verify_job_rejected(base, *, token=None):
+    """An invalid payload prevents this probe from scheduling work even without auth."""
+    try:
+        request(f"{base}/v2/jobs", {}, token=token)
+    except urllib.error.HTTPError as error:
+        with error:
+            if error.code == 401 and json.load(error).get("code") == "unauthorized":
+                return
+        raise SystemExit(f"Job submission returned HTTP {error.code}; expected a 401 authentication error.") from None
+    raise SystemExit("Job submission accepted a request without valid credentials.")
 
 
 def wait_for_health(base, expected_sha):
@@ -66,9 +80,9 @@ def pair_job_body(pair):
             "coherence_threshold": COHERENCE_THRESHOLD}
 
 
-def run_job(base, body):
+def run_job(base, body, *, token=None):
     started = time.monotonic()
-    job = request(f"{base}/v2/jobs", body)
+    job = request(f"{base}/v2/jobs", body, token=token)
     while job.get("status") not in DONE:
         if time.monotonic() - started > JOB_BUDGET_SECONDS:
             raise SystemExit(f"job {job.get('job_id')} did not finish in {JOB_BUDGET_SECONDS} s")
@@ -80,20 +94,20 @@ def run_job(base, body):
     return round(time.monotonic() - started), result
 
 
-def run_pair_job(base):
+def run_pair_job(base, *, token=None):
     today = date.today()
     query = (f"longitude={KUMAMOTO[0]}&latitude={KUMAMOTO[1]}&product=GUNW"
              f"&start_date={today - timedelta(days=CATALOG_WINDOW_DAYS)}&end_date={today}")
     pair = first_pair(request(f"{base}/v2/coverage?{query}"))
     if pair is None:
         raise SystemExit("the GUNW catalog listed no pair over Kumamoto")
-    seconds, result = run_job(base, pair_job_body(pair))
+    seconds, result = run_job(base, pair_job_body(pair), token=token)
     return seconds, result["science_status"], len(result["layers"])
 
 
-def run_gcov_job(base):
+def run_gcov_job(base, *, token=None):
     body = json.loads(Path(__file__).with_name("modal_preview_choco.json").read_text(encoding="utf-8"))
-    seconds, result = run_job(base, body)
+    seconds, result = run_job(base, body, token=token)
     science = result["science"]
     reading = science["gcov_reading"]
     if reading["reader"] != "pyfive" or reading["native_window_pixels"] != 384:
@@ -131,10 +145,16 @@ def main():
         limit = request(f"{base}/v2/capabilities")["daily_new_jobs_total"]
         if limit != int(expected):
             raise SystemExit(f"daily job limit is {limit}, expected {expected}")
-    seconds, science, layers = run_pair_job(base)
+    token = None
+    if os.environ.get("NISAR_PREVIEW_JOB_AUTH") == "1":
+        token = os.environ["NISAR_GATEWAY_SHARED_SECRET"]
+        verify_job_rejected(base)
+        verify_job_rejected(base, token="invalid-preview-token")
+        print("Job submission rejected missing and incorrect credentials")
+    seconds, science, layers = run_pair_job(base, token=token)
     print(f"insar-pair job {science} in {seconds} s with {layers} layers")
     if os.environ.get("NISAR_GCOV_READER") == "pyfive" and os.environ.get("NISAR_GCOV_POSTING_M") == "40":
-        run_gcov_job(base)
+        run_gcov_job(base, token=token)
 
 
 if __name__ == "__main__":
