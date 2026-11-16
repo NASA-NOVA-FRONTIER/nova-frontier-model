@@ -1,4 +1,5 @@
 """Admission and persistent job identity. The ASGI deployment uses one gateway."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
 import os
@@ -11,6 +12,8 @@ from .service_contracts import Job, canonical_job
 ACTIVE = {"queued", "running"}
 LEASE_SECONDS = int(os.environ.get("NISAR_JOB_LEASE_SECONDS", "360"))
 CACHE_SECONDS = 86400
+DEFAULT_DAILY_DELIVERY_BYTES = 1024**3
+STATE_READ_WORKERS = 32
 
 
 def _plain(item):
@@ -43,62 +46,77 @@ class LocalDict(dict):
 
 
 class JobStore:
-    def __init__(self, state, spawn, revision, *, max_active=2, jobs_per_day=12, jobs_per_ip_day=5):
+    def __init__(self, state, spawn, revision, *, max_active=2, jobs_per_day=12, jobs_per_ip_day=5,
+                 daily_delivery_bytes=DEFAULT_DAILY_DELIVERY_BYTES):
         self.state = state
         self.spawn = spawn
         self.revision = revision
         self.max_active = max_active
         self.jobs_per_day = jobs_per_day
         self.jobs_per_ip_day = jobs_per_ip_day
+        self.daily_delivery_bytes = daily_delivery_bytes
         self.lock = RLock()
+        self.delivery_lock = RLock()
+
+    def _read_all(self, keys):
+        """Every Dict read is a network round trip, so a batch is read at once.
+
+        The pool ends with the batch: idle threads left behind delay the container's shutdown.
+        """
+        if not keys:
+            return []
+        with ThreadPoolExecutor(max_workers=min(STATE_READ_WORKERS, len(keys))) as reads:
+            return list(reads.map(self.state.get, keys))
 
     def submit(self, request, ip_key):
         key, payload = canonical_job(request, self.revision)
         cache_key = "cache:" + key
         now = time()
         day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
+        daily, ip = f"day:{day}", f"ip:{day}:{ip_key}"
         with self.lock:
-            cached = self.state.get(cache_key)
+            cached, used_today, used_by_ip, active = self._read_all([cache_key, daily, ip, "active"])
             if cached and cached["until"] > now:
                 current = self.state.get("job:" + cached["id"])
                 if current and current["status"] != "failed" and not (
                     current["status"] in ACTIVE and current["deadline"] <= now
                 ):
                     return self.view(current, "in_flight" if current["status"] in ACTIVE else "hit")
-            daily = f"day:{day}"
-            if self.state.get(daily, 0) >= self.jobs_per_day:
+            used_today, used_by_ip = used_today or 0, used_by_ip or 0
+            if used_today >= self.jobs_per_day:
                 raise Rejected(429, "daily_budget", "New job capacity is exhausted for this UTC day.")
-            ip = f"ip:{day}:{ip_key}"
-            if self.state.get(ip, 0) >= self.jobs_per_ip_day:
+            if used_by_ip >= self.jobs_per_ip_day:
                 raise Rejected(429, "rate_limited", "This client reached its daily new-job limit.")
-            active = self.state.get("active", {})
-            active = {job: until for job, until in active.items()
-                      if until > now and (self.state.get("job:" + job) or {}).get("status") in ACTIVE}
-            if len(active) >= self.max_active:
-                raise Rejected(503, "queue_full", "Worker capacity is full. Retry shortly.")
+            leased = {job: until for job, until in (active or {}).items() if until > now}
+            if len(leased) >= self.max_active:
+                # Only a full pool needs exact counts; finished jobs are dropped from the map then.
+                records = self._read_all(["job:" + job for job in leased])
+                leased = {job: until for (job, until), record in zip(leased.items(), records)
+                          if (record or {}).get("status") in ACTIVE}
+                if len(leased) >= self.max_active:
+                    raise Rejected(503, "queue_full", "Worker capacity is full. Retry shortly.")
             job_id = uuid4().hex
             deadline = now + LEASE_SECONDS
             record = {"id": job_id, "status": "queued", "deadline": deadline}
-            self.state.put("job:" + job_id, record)
-            self.state.put(cache_key, {"id": job_id, "until": now + CACHE_SECONDS})
-            self.state.put("active", {**active, job_id: deadline})
-            self.state.put(daily, self.state.get(daily, 0) + 1)
-            self.state.put(ip, self.state.get(ip, 0) + 1)
-            try:
-                self.spawn(payload, job_id)
-            except Exception as exc:
-                self.state.put("job:" + job_id, {**record, "status": "failed", "code": "submit_failed"})
-                raise Rejected(503, "submit_failed", "The worker could not be scheduled.") from exc
-            return self.view(record)
+            self.state.update({"job:" + job_id: record,
+                               cache_key: {"id": job_id, "until": now + CACHE_SECONDS},
+                               "active": {**leased, job_id: deadline},
+                               daily: used_today + 1, ip: used_by_ip + 1})
+        try:
+            self.spawn(payload, job_id)
+        except Exception as exc:
+            self.state.put("job:" + job_id, {**record, "status": "failed", "code": "submit_failed"})
+            raise Rejected(503, "submit_failed", "The worker could not be scheduled.") from exc
+        return self.view(record)
 
     def reserve_delivery(self, size):
         if not size:
             return
         day = datetime.now(timezone.utc).date().isoformat()
         key = f"delivery:{day}"
-        with self.lock:
+        with self.delivery_lock:
             total = self.state.get(key, 0) + size
-            if total > 1024**3:
+            if total > self.daily_delivery_bytes:
                 raise Rejected(429, "daily_budget", "Artifact delivery capacity is exhausted for this UTC day.")
             self.state.put(key, total)
 
