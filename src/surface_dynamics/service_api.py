@@ -48,6 +48,7 @@ def configured_origins(extra=""):
 ORIGINS = configured_origins(os.environ.get("NISAR_CORS_ORIGINS", ""))
 PUBLIC_CACHE = "public, max-age=300"
 MAX_BODY = 8192
+DEFAULT_REQUESTS_PER_MINUTE = 120
 
 
 class Results:
@@ -123,7 +124,7 @@ def artifact_response(body, asset, request):
 
 def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str | None = None,
                git_sha: str | None = None, cases_path: str = "cases", events=None,
-               job_shared_secret: str | None = None):
+               job_shared_secret: str | None = None, requests_per_minute: int = DEFAULT_REQUESTS_PER_MINUTE):
     if job_shared_secret is not None and not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", job_shared_secret):
         raise ValueError("Configure a non-empty ASCII bearer token for job submission.")
     expected_token = job_shared_secret.encode("ascii") if job_shared_secret is not None else None
@@ -167,7 +168,7 @@ def create_app(root: Path, jobs, *, reload=lambda: None, observation_page: str |
         with rate_lock:
             minute, count = rate.get(key, (now, 0))
             count = count if minute == now else 0
-            if count >= 120:
+            if count >= requests_per_minute:
                 return problem(429, "rate_limited", "This client reached its request rate limit.")
             rate[key] = (now, count + 1)
             rate.move_to_end(key)
