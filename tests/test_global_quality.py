@@ -30,10 +30,18 @@ class GlobalQualityTests(unittest.TestCase):
 
     def test_cached_chip_must_match_requested_granule_identity(self):
         with tempfile.TemporaryDirectory() as folder:
-            path=Path(folder)/'chip.npz';np.savez(path,test=np.arange(4))
-            path.with_suffix('.json').write_text(json.dumps({'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'title':'different granule','query_point':[0,0],'requested_pixels':512,'crop_policy':'point_centered'}))
-            with patch('surface_dynamics.io.load_range_reader',side_effect=RuntimeError('fresh source read requested')):
-                with self.assertRaisesRegex(RuntimeError,'fresh source read requested'):fetch_chip({'title':'requested granule'},0,0,path,token='in-memory-test')
+            path = Path(folder) / "chip.npz"
+            np.savez(path, test=np.arange(4))
+            source = "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/requested.h5"
+            path.with_suffix(".json").write_text(json.dumps({
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "source": source,
+                "title": "different granule", "query_point": [0, 0],
+                "requested_pixels": 512, "crop_policy": "point_centered",
+            }))
+            entry = {"title": "requested granule", "links": [{"href": source}]}
+            with patch("surface_dynamics.io.load_range_reader", side_effect=RuntimeError("fresh source read requested")):
+                with self.assertRaisesRegex(RuntimeError, "fresh source read requested"):
+                    fetch_chip(entry, 0, 0, path, token="in-memory-test")
 
     def test_map_probe_inside_grid_without_samples_returns_no_valid_observations(self):
         with tempfile.TemporaryDirectory() as folder:
