@@ -4,6 +4,8 @@ Nova Frontier Model serves measured NISAR radar time series and interferometry f
 
 [Open the Explorer](https://nova-frontier-frontend.vercel.app/explore) · [Browse measured cases](https://japv-x2612--nova-frontier-model.us-east.modal.run/v2/cases) · [Read the API contract](docs/API.md)
 
+**Contents:** [What you can explore](#what-you-can-explore) · [Read the evidence](#read-the-evidence) · [What this model does not claim](#what-this-model-does-not-claim) · [Architecture and latency](#architecture-and-latency) · [Quick start](#quick-start) · [Configuration and deployment](#configuration-and-deployment) · [Measured results and limits](#measured-results-and-limits) · [Reproducibility and contributing](#reproducibility-and-contributing) · [Credits and license](#credits-and-license)
+
 ![Charts compare radar changes near harvests and the share of diagnostic flags inside and outside mapped areas. Two maps show signed changes near a flood and a fire.](assets/readme/exploration_lens_holdout.webp)
 
 The geographic holdout compares measured radar changes with dated harvest records, independently mapped water and final fire perimeters. [Holdout methods and results](docs/EXPLORATION_HOLDOUT.md)
@@ -31,7 +33,11 @@ The geographic holdout compares measured radar changes with dated harvest record
 
 ## Read the evidence
 
-An answer begins with **what changed, where and when**. Show the acquisition dates, comparator, channel, units, grid and valid-cell denominator alongside the layer. Explain which physical property could affect that return, what else can explain it and what an independent observation could confirm. A missing or unsupported estimate stays null. Keep partial results and coverage gaps visible. A forecast, automatic event classification, phenomenon probability, causal attribution or validated line-of-sight displacement is outside the current contract. Phase-equivalent centimetres express a phase conversion and require further evidence before being interpreted as movement. [Evidence contracts](docs/CHARACTERIZATION_V05_CONTRACTS.md) · [Interpretation guide](docs/NARRATIVE_FACTS.md)
+An answer begins with **what changed, where and when**. Show the acquisition dates, comparator, channel, units, grid and valid-cell denominator alongside the layer. Explain which physical property could affect that return, what else can explain it and what an independent observation could confirm. A missing or unsupported estimate stays null. Keep partial results and coverage gaps visible. [Evidence contracts](docs/CHARACTERIZATION_V05_CONTRACTS.md) · [Interpretation guide](docs/NARRATIVE_FACTS.md)
+
+### What this model does not claim
+
+A forecast, automatic event classification, phenomenon probability, causal attribution or validated line-of-sight displacement is outside the current contract. Phase-equivalent centimetres express a phase conversion and require further evidence before being interpreted as movement.
 
 | Uncertainty | What to show |
 | --- | --- |
@@ -121,6 +127,10 @@ The [measured case release](https://github.com/NASA-NOVA-FRONTIER/nova-frontier-
 
 The prepared Qadirabad report in the Explorer combines radar imagery, optical reference groups and support counts. [Open the Qadirabad case](https://nova-frontier-frontend.vercel.app/explore?case=qadirabad)
 
+![Shown in the frontend: the More information sheet for Qadirabad with this repository's flood-evidence report figure, how the result was computed, evidence and quality, and sources.](assets/readme/frontend-sheet-qadirabad.webp)
+
+Shown in the frontend: the Explorer's More information sheet places this repository's report figure beside the computation steps, evidence quality and sources.
+
 - **Qadirabad · verified measured case.** Compare HH/HV darkening with dated optical-water transitions and baseline-matched controls. [Flood characterization](docs/FLOOD_CHARACTERIZATION.md)
 - **Chókwè · verified measured case.** See how radar and optical evidence can diverge across a wetland or floodplain. [Case API example](docs/API.md)
 - **Richmond · verified measured case.** Use the footprint and optical timing to judge partial flood evidence. [Flood validation](docs/FLOOD_VALIDATION.md)
@@ -131,10 +141,14 @@ The prepared Qadirabad report in the Explorer combines radar imagery, optical re
 
 ## Reproducibility and contributing
 
-Use the [ASF DAAC archive](https://nisar-docs.asf.alaska.edu/access-overview/) for NISAR GCOV and GUNW and [NASA OPERA DSWx](https://science.data.nasa.gov/disasters/data-gallery/opera-dswx) for dated surface-water reference products. Cite the granule IDs, acquisition dates, reference products, model revision and manifest for each result. Credit NASA and ISRO for NISAR, ASF DAAC for archive access, the independent reference providers and the NISAR Hazard Watch team. The Qadirabad screenshot also shows the Explorer's basemap, whose providers are credited in the application.
+Use the [ASF DAAC archive](https://nisar-docs.asf.alaska.edu/access-overview/) for NISAR GCOV and GUNW and [NASA OPERA DSWx](https://science.data.nasa.gov/disasters/data-gallery/opera-dswx) for dated surface-water reference products. Cite the granule IDs, acquisition dates, reference products, model revision and manifest for each result.
 
 Keep raw satellite data, generated outputs and secrets outside Git. The audit enforces a **10 MiB** tracked-tree budget. Use checksummed fixtures for offline reproduction. Preserve negative results and tie new claims to an artifact or test. [Data policy](docs/DATA_AND_GIT.md) · [Repository audit](scripts/repository_audit.py)
 
 To promote experimental capabilities, benchmark GCOV readers and analysis posting on the same acquisitions and footprint, validate evidence across independent geographies and seasons, and verify phase corrections against independent geodetic references. Use the [team handoff](TEAM_HANDOFF.md) to coordinate changes to API fields, provenance and UI copy.
 
-**License pending.** Repository owners will specify source-code and artifact terms. Cite and follow the terms of each upstream data product.
+## Credits and license
+
+Credit NASA and ISRO for NISAR, ASF DAAC for archive access, the independent reference providers and the NISAR Hazard Watch team. The Qadirabad screenshots also show the Explorer's basemap, whose providers are credited in the application.
+
+**License pending: TODO (owner: team).** Repository owners will specify source-code and artifact terms. Cite and follow the terms of each upstream data product.
