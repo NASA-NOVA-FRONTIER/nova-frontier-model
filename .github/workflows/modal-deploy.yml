@@ -34,16 +34,27 @@ jobs:
       NISAR_EARTHDATA_SECRET: nova-frontier-earthdata
       NISAR_CASES_PATH: cases
       NISAR_GATEWAY_AUTH_SECRET_NAME: ${{ vars.NISAR_GATEWAY_AUTH_SECRET_NAME }}
-      # Keep gateway admission aligned with the worker pool. Railway's own cap is independent.
-      NISAR_MAX_ACTIVE_JOBS: "8"
-      NISAR_WORKER_CONTAINERS: "8"
+      # Keep gateway admission aligned with the worker pool. The backend's own MAX_ACTIVE_EXPLORATIONS
+      # (Railway) is independent and must not exceed NISAR_MAX_ACTIVE_JOBS. The Starter plan caps a
+      # workspace at 100 concurrent containers, shared with the preview apps.
+      NISAR_MAX_ACTIVE_JOBS: "32"
+      NISAR_WORKER_CONTAINERS: "32"
       NISAR_WORKER_CPU: "2"
       NISAR_WORKER_CPU_LIMIT: "4"
       NISAR_WORKER_MEMORY_MB: "4096"
-      NISAR_WORKER_BUFFER_CONTAINERS: "1"
-      NISAR_WORKER_SCALEDOWN_SECONDS: "30"
-      NISAR_JOBS_PER_DAY: "300"
-      NISAR_JOBS_PER_IP_DAY: "300"
+      NISAR_WORKER_BUFFER_CONTAINERS: "4"
+      NISAR_WORKER_SCALEDOWN_SECONDS: "120"
+      NISAR_JOBS_PER_DAY: "5000"
+      NISAR_JOBS_PER_IP_DAY: "5000"
+      NISAR_REQUESTS_PER_MINUTE: "3000"
+      NISAR_GATEWAY_CONCURRENCY: "64"
+      NISAR_GATEWAY_CPU: "0.5"
+      NISAR_GATEWAY_CPU_LIMIT: "1"
+      NISAR_GATEWAY_MEMORY_LIMIT_MB: "1024"
+      NISAR_GATEWAY_TIMEOUT_SECONDS: "60"
+      NISAR_GATEWAY_SCALEDOWN_SECONDS: "120"
+      # 20 GiB a day is about 600 GiB a month, inside the 1 TiB of egress the Starter plan includes.
+      NISAR_DAILY_DELIVERY_BYTES: "21474836480"
       # Measured 2026-11-13: fresh areas took 3.5 to 4 minutes with three jobs at once and the
       # default 240 s limit killed the busier ones, leaving their slots taken until the lease ended.
       NISAR_WORKER_TIMEOUT_SECONDS: "420"
