@@ -30,6 +30,22 @@ An additional **live catalog→authenticated extraction→analysis** job at an a
 
 ![Shared representation atlas](docs/images/global_surface_atlas.png)
 
+The seven atlas panels can also be exported directly from the original v1 model
+outputs:
+
+```sh
+python scripts/export_atlas_panels.py products deliverables/atlas-native
+```
+
+Use the `products/global_examples.json` index and the matching `runs/*/surface_dynamics.nc`
+and `result.json` files from the original atlas run. With the measured v1 fixtures
+restored, `scripts/run_global_examples.py` regenerates those model outputs. The exporter
+verifies each NetCDF against its result manifest. It writes the floating-point
+`learned_rgb` and projected coordinates, an RGB PNG at one pixel per cell, and a
+manifest with acquisition counts, grid metadata and SHA-256 checksums. Each original
+panel is 128 × 128 cells. The colors show a fixed projection of learned radar
+representations for descriptive comparison. Keep the exported artifacts outside Git.
+
 ## Methods, implemented rather than named
 
 **Physical descriptions.** Linear power is averaged before dB. Outputs include temporal median, robust MAD, actual-date linear slope, largest observed step, per-transition rates and valid-date counts. Source support masks are not SNR or terrain-visibility masks. Directional structure-tensor texture and spatial FFT spectra describe spatial organization; they do not retrieve a calibrated roughness length. POD/SVD supplies spatial modes, temporal coefficients and explained variance without asserting governing equations.
