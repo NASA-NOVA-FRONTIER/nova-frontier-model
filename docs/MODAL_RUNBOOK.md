@@ -83,6 +83,15 @@ for each scene's cache state, HTTP requests, bytes and range batches, and
 gateway elapsed time. Browser click-to-layer latency requires a separate measurement
 through Explorer and the application backend.
 
+Native chips are keyed by the exact ASF asset, granule name, catalog update
+timestamp when provided, and native window. The lens is independent of the
+chip key. Existing planned chips can still be read when the sidecar records
+the same archive source and passes checksum and window validation. Older chips
+without a catalog timestamp are refreshed for catalog entries that provide one.
+The preview submits a second lens over the same five Chocó scenes and verifies
+five chip hits with zero requests and bytes from ASF. Its logs record both job
+IDs, worker and prefetch times, and archive traffic.
+
 ## Roll out job submission authentication
 
 1. Provision a strong random bearer token as `NISAR_GATEWAY_SHARED_SECRET` in a dedicated Modal Secret. Configure the same value in Railway's backend service via its secret settings. Keep the token out of workflow variables, URLs, browser code, terminal arguments and logs. Only the Modal gateway needs the Modal Secret.

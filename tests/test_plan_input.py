@@ -1,6 +1,7 @@
 """Check that a backend scene plan drives an exploration without any catalog search."""
 
 import json
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -12,7 +13,9 @@ import numpy as np
 from pydantic import ValidationError
 from rasterio.warp import transform
 
-from surface_dynamics.catalog import science_url
+from surface_dynamics.catalog import COLLECTIONS, science_url
+from surface_dynamics.explore import ExploreRequest, _chip_path
+from surface_dynamics.io import fetch_chip
 from surface_dynamics.plan_input import (
     entries_from_scenes, prefetch_chips, series_key, summarize_aoi,
 )
@@ -86,6 +89,49 @@ class PlanEntryTests(TestCase):
                      "https://nisar.asf.earthdatacloud.nasa.gov/NISAR-UR/x_QA_STATS.h5"):
             with self.subTest(href), self.assertRaises(ValueError):
                 science_url({"links": [{"href": href}]})
+
+
+class ChipCacheTests(TestCase):
+    def setUp(self):
+        self.query = ExploreRequest(BODY["longitude"], BODY["latitude"], BODY["start_date"], BODY["end_date"],
+                                    lens="vegetation_disturbance", chip_pixels=128)
+        _, [self.provisional] = entries_from_scenes(SCENES[:1])
+        _, [self.validated] = entries_from_scenes([{**SCENES[0], "collection": "VALIDATED"}])
+
+    def test_chip_key_is_shared_across_lenses_and_separates_source_revision_and_window(self):
+        cache = Path("unused")
+        key = _chip_path(self.query, self.provisional, cache)
+        self.assertEqual(key, _chip_path(replace(self.query, lens="wildfire"), self.provisional, cache))
+        self.assertNotEqual(key, _chip_path(self.query, self.validated, cache))
+        revised = {**self.provisional, "updated": "2026-11-15T01:02:03Z"}
+        self.assertNotEqual(key, _chip_path(self.query, revised, cache))
+        self.assertNotEqual(key, _chip_path(replace(self.query, chip_pixels=136), self.provisional, cache))
+
+    def test_legacy_chip_is_reused_only_with_matching_archive_source_and_revision(self):
+        with TemporaryDirectory() as temp:
+            cache = Path(temp)
+            q = self.query
+            entry = self.provisional
+            identity = [1, COLLECTIONS["GCOV"], entry["id"], entry["title"], "A",
+                        q.longitude, q.latitude, q.chip_pixels]
+            legacy = cache / (sha256(json.dumps(identity).encode()).hexdigest() + ".npz")
+            legacy.write_bytes(b"chip contents")
+            metadata = {"source": science_url(entry), "sha256": sha256(legacy.read_bytes()).hexdigest(),
+                        "title": entry["title"], "query_point": [q.longitude, q.latitude],
+                        "requested_pixels": q.chip_pixels, "crop_policy": "point_centered"}
+            legacy.with_suffix(".json").write_text(json.dumps(metadata))
+
+            self.assertEqual(_chip_path(q, entry, cache), legacy)
+            self.assertNotEqual(_chip_path(q, self.validated, cache), legacy)
+            stats = {}
+            self.assertEqual(fetch_chip(entry, q.longitude, q.latitude, legacy, q.chip_pixels,
+                                        cache_only=True, stats=stats), metadata)
+            self.assertTrue(stats["chip_hit"])
+            self.assertEqual((stats["http_requests"], stats["asf_bytes"]), (0, 0))
+            for different in (self.validated, {**entry, "updated": "2026-11-15T01:02:03Z"}):
+                with self.subTest(source=science_url(different), updated=different.get("updated")):
+                    with self.assertRaises(FileNotFoundError):
+                        fetch_chip(different, q.longitude, q.latitude, legacy, q.chip_pixels, cache_only=True)
 
 
 class ContractTests(TestCase):

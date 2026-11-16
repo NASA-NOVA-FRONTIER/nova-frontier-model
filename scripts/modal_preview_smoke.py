@@ -92,7 +92,7 @@ def run_job(base, body, *, token=None):
     result = job.get("result") or {}
     if job["status"] != "succeeded" or not result.get("layers"):
         raise SystemExit(f"job ended {job['status']} with {len(result.get('layers') or [])} layers: {job.get('error')}")
-    return round(time.monotonic() - started), result
+    return round(time.monotonic() - started), job
 
 
 def run_pair_job(base, *, token=None):
@@ -102,13 +102,15 @@ def run_pair_job(base, *, token=None):
     pair = first_pair(request(f"{base}/v2/coverage?{query}"))
     if pair is None:
         raise SystemExit("the GUNW catalog listed no pair over Kumamoto")
-    seconds, result = run_job(base, pair_job_body(pair), token=token)
+    seconds, job = run_job(base, pair_job_body(pair), token=token)
+    result = job["result"]
     print(f"insar-pair job {result['science_status']} in {seconds} s with {len(result['layers'])} layers")
 
 
 def run_gcov_job(base, *, token=None):
     body = json.loads(Path(__file__).with_name("modal_preview_choco.json").read_text(encoding="utf-8"))
-    seconds, result = run_job(base, body, token=token)
+    seconds, first = run_job(base, body, token=token)
+    result = first["result"]
     science = result["science"]
     reading = science["gcov_reading"]
     if reading["reader"] != "pyfive" or reading["native_window_pixels"] != 384:
@@ -135,6 +137,34 @@ def run_gcov_job(base, *, token=None):
         raise SystemExit(f"Unexpected Chocó display PNG dimensions: {width} × {height}")
     print(f"Chocó GCOV job in {seconds} s, EPSG:{grids[0]['epsg']}, "
           f"96 × 96 at 40 m, {len(grids)} scenes, {batches} range batches, PNG {width} × {height}")
+    verify_gcov_chip_reuse(base, body, first, token=token)
+
+
+def verify_gcov_chip_reuse(base, body, first, *, token=None):
+    """Run a new lens on the identical scene plan and measure archive traffic."""
+    seconds, second = run_job(base, {**body, "lens": "vegetation_disturbance"}, token=token)
+    first_science = first["result"]["science"]
+    second_science = second["result"]["science"]
+    first_reads = first_science["gcov_reading"]["reads"]
+    second_reads = second_science["gcov_reading"]["reads"]
+    scene_ids = {scene["granule_id"] for scene in body["scenes"]}
+    if first["job_id"] == second["job_id"]:
+        raise SystemExit("The two GCOV lenses returned the same job ID")
+    if set(first_reads) != scene_ids or set(second_reads) != scene_ids:
+        raise SystemExit("The two GCOV lenses did not use the same complete scene plan")
+    if not all(read.get("chip_hit") is True and read.get("http_requests") == 0
+               and read.get("asf_bytes") == 0 for read in second_reads.values()):
+        raise SystemExit("The second GCOV lens did not reuse every chip with zero archive requests and bytes")
+    for label, job, science, reads in (
+        ("flood_wetland", first, first_science, first_reads),
+        ("vegetation_disturbance", second, second_science, second_reads),
+    ):
+        print(f"GCOV chip reuse {label}: job={job['job_id']}, worker={job['result']['elapsed_seconds']:.3f} s, "
+              f"prefetch={science['timings']['prefetch_s']:.3f} s, "
+              f"chip_hits={sum(read.get('chip_hit') is True for read in reads.values())}/{len(reads)}, "
+              f"asf_requests={sum(read['http_requests'] for read in reads.values())}, "
+              f"asf_bytes={sum(read['asf_bytes'] for read in reads.values())}")
+    print(f"Second GCOV lens completed in {seconds} s through the gateway")
 
 
 def main():
