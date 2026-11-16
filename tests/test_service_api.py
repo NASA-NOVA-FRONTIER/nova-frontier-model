@@ -115,6 +115,17 @@ class ApiTests(TestCase):
         cached = self.client.post("/v2/jobs", json={**BODY, "longitude": 0})
         self.assertEqual((cached.status_code, cached.json()["cache"]), (200, "hit"))
 
+    def test_request_rate_limit_defaults_to_120_per_minute(self):
+        with patch("surface_dynamics.service_api.monotonic", return_value=600.0):
+            statuses = [self.client.get("/v2/capabilities").status_code for _ in range(121)]
+        self.assertEqual((statuses.count(200), statuses[-1]), (120, 429))
+
+    def test_request_rate_limit_follows_the_configured_value(self):
+        client = TestClient(create_app(self.root, self.jobs, requests_per_minute=300))
+        with patch("surface_dynamics.service_api.monotonic", return_value=600.0):
+            statuses = [client.get("/v2/capabilities").status_code for _ in range(301)]
+        self.assertEqual((statuses.count(200), statuses[-1]), (300, 429))
+
     def test_hosted_observation_page_and_api_share_a_gateway(self):
         page = Path(__file__).resolve().parents[1] / "scripts" / "observation-mock" / "index.html"
         client = TestClient(create_app(self.root, self.jobs, observation_page=page.read_text(encoding="utf-8")))

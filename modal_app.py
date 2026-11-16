@@ -44,6 +44,17 @@ WORKER_CPU_LIMIT = int(os.environ.get("NISAR_WORKER_CPU_LIMIT", str(WORKER_CPU))
 WORKER_TIMEOUT_SECONDS = int(os.environ.get("NISAR_WORKER_TIMEOUT_SECONDS", "240"))
 JOB_LEASE_SECONDS = int(os.environ.get("NISAR_JOB_LEASE_SECONDS", str(WORKER_TIMEOUT_SECONDS + 120)))
 WORKER_MEMORY_MB = int(os.environ.get("NISAR_WORKER_MEMORY_MB", "2048"))
+# The backend is nearly the only caller, so this per-IP limit is shared by every user it serves.
+REQUESTS_PER_MINUTE = int(os.environ.get("NISAR_REQUESTS_PER_MINUTE", "120"))
+GATEWAY_CONCURRENCY = int(os.environ.get("NISAR_GATEWAY_CONCURRENCY", "16"))
+GATEWAY_CPU = float(os.environ.get("NISAR_GATEWAY_CPU", "0.125"))
+GATEWAY_CPU_LIMIT = float(os.environ.get("NISAR_GATEWAY_CPU_LIMIT", "0.25"))
+GATEWAY_MEMORY_LIMIT_MB = int(os.environ.get("NISAR_GATEWAY_MEMORY_LIMIT_MB", "512"))
+# A submission waits for the admission lock, so a burst of jobs needs more than the default 20 s.
+GATEWAY_TIMEOUT_SECONDS = int(os.environ.get("NISAR_GATEWAY_TIMEOUT_SECONDS", "20"))
+# The gateway is a single container: each restart is a window in which requests can queue or fail.
+GATEWAY_SCALEDOWN_SECONDS = int(os.environ.get("NISAR_GATEWAY_SCALEDOWN_SECONDS", "5"))
+DAILY_DELIVERY_BYTES = int(os.environ.get("NISAR_DAILY_DELIVERY_BYTES", str(1024**3)))
 GCOV_READER = os.environ.get("NISAR_GCOV_READER", "h5py")
 GCOV_POSTING = os.environ.get("NISAR_GCOV_POSTING_M", "native")
 if GCOV_READER not in {"h5py", "pyfive"} or GCOV_POSTING not in {"native", "40"}:
@@ -107,6 +118,13 @@ runtime_config = {
     "NISAR_WORKER_SCALEDOWN_SECONDS": str(WORKER_SCALEDOWN_SECONDS),
     "NISAR_WORKER_CPU": str(WORKER_CPU), "NISAR_WORKER_CPU_LIMIT": str(WORKER_CPU_LIMIT),
     "NISAR_WORKER_MEMORY_MB": str(WORKER_MEMORY_MB),
+    "NISAR_REQUESTS_PER_MINUTE": str(REQUESTS_PER_MINUTE),
+    "NISAR_GATEWAY_CONCURRENCY": str(GATEWAY_CONCURRENCY),
+    "NISAR_GATEWAY_CPU": str(GATEWAY_CPU), "NISAR_GATEWAY_CPU_LIMIT": str(GATEWAY_CPU_LIMIT),
+    "NISAR_GATEWAY_MEMORY_LIMIT_MB": str(GATEWAY_MEMORY_LIMIT_MB),
+    "NISAR_GATEWAY_TIMEOUT_SECONDS": str(GATEWAY_TIMEOUT_SECONDS),
+    "NISAR_GATEWAY_SCALEDOWN_SECONDS": str(GATEWAY_SCALEDOWN_SECONDS),
+    "NISAR_DAILY_DELIVERY_BYTES": str(DAILY_DELIVERY_BYTES),
 }
 package = ROOT / "src" / "surface_dynamics"
 MOCK_HTML = "/opt/nisar/observation-mock.html"
@@ -178,16 +196,19 @@ def worker(body, job_id):
         state.put(key, {**record, "status": "failed", "code": "worker_failed"})
 
 
-@app.function(image=gateway_image, volumes=gateway_volumes, cpu=(.125, .25), memory=(256, 512),
-              timeout=20, max_containers=1, scaledown_window=5, secrets=gateway_secrets)
-@modal.concurrent(max_inputs=16)
+@app.function(image=gateway_image, volumes=gateway_volumes, cpu=(GATEWAY_CPU, GATEWAY_CPU_LIMIT),
+              memory=(256, GATEWAY_MEMORY_LIMIT_MB),
+              timeout=GATEWAY_TIMEOUT_SECONDS, max_containers=1, scaledown_window=GATEWAY_SCALEDOWN_SECONDS,
+              secrets=gateway_secrets)
+@modal.concurrent(max_inputs=GATEWAY_CONCURRENCY)
 @modal.asgi_app(label=APP_NAME)
 def api():
     from surface_dynamics.service_api import create_app
     from surface_dynamics.service_state import JobStore
 
     jobs = JobStore(state, worker.spawn, REVISION, max_active=MAX_ACTIVE_JOBS,
-                    jobs_per_day=JOBS_PER_DAY, jobs_per_ip_day=JOBS_PER_IP_DAY)
+                    jobs_per_day=JOBS_PER_DAY, jobs_per_ip_day=JOBS_PER_IP_DAY,
+                    daily_delivery_bytes=DAILY_DELIVERY_BYTES)
     events = None
     if EVENTS_ENABLED:
         from surface_dynamics.event_release import EventRelease
@@ -198,4 +219,5 @@ def api():
                       observation_page=Path(MOCK_HTML).read_text(encoding="utf-8"),
                       git_sha=GIT_SHA, cases_path=CASES_PATH, events=events,
                       job_shared_secret=os.environ[JOB_AUTH_SECRET_KEY] if JOB_AUTH_SECRET_NAME or PREVIEW_JOB_AUTH
-                      else None)
+                      else None,
+                      requests_per_minute=REQUESTS_PER_MINUTE)
