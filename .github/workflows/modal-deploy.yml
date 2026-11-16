@@ -82,14 +82,14 @@ jobs:
         run: |
           url=$(python -c 'import os, modal; print(modal.Function.from_name(os.environ["NISAR_APP_NAME"], "api", environment_name="main").get_web_url())')
           echo "Gateway: $url"
-          body=""
-          for attempt in 1 2 3 4 5; do
-            body=$(curl -fsS --max-time 60 "$url/health") && break
-            sleep 10
-          done
-          test -n "$body" || { echo "::error::$url/health did not answer"; exit 1; }
-          echo "$body"
-          python -c 'import json, sys; h = json.loads(sys.argv[1]); assert h["status"] == "ok", h; assert h["git_sha"] == sys.argv[2], (h["git_sha"], sys.argv[2])' "$body" "$GITHUB_SHA"
+          PYTHONPATH=scripts python - "$url" "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+
+          from modal_preview_smoke import wait_for_health
+
+          print(json.dumps(wait_for_health(sys.argv[1], sys.argv[2])))
+          PY
           if [ -n "$NISAR_GATEWAY_AUTH_SECRET_NAME" ]; then
             python scripts/modal_preview_event_smoke.py "$url" --public-reads-only
           else
