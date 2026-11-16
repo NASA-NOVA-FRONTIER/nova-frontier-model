@@ -224,7 +224,9 @@ class FloodEvaluationTests(unittest.TestCase):
     def test_point_and_signed_maps_publish_before_optical_then_complete_over_http(self):
         data = cube()
         data["power"][3] = 0.1
-        entries = [{"title": "synthetic_" + day, "time_start": day + "T00:00:00Z"} for day in DATES[:4]]
+        entries = [{"title": "synthetic_" + day, "time_start": day + "T00:00:00Z", "links": [
+            {"href": f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/synthetic_{day}.h5"},
+        ]} for day in DATES[:4]]
         optical_started, optical_release = Event(), Event()
 
         def fetch(entry, longitude, latitude, path, pixels, cache_only):

@@ -12,7 +12,7 @@ from rasterio.warp import transform
 from urllib3.exceptions import HTTPError, TimeoutError as RangeTimeout
 
 from .analysis import measured_db
-from .catalog import COLLECTIONS, group_entries, search
+from .catalog import COLLECTIONS, group_entries, science_url, search
 from .engine import write_cog
 from .agriculture_lens import write_agriculture_layers
 from .flood_lens import with_evidence, write_signature_layer
@@ -217,15 +217,34 @@ def select_alternate(query, groups, primary_key):
 
 
 def _chip_path(query, entry, cache):
-    identity = [1, COLLECTIONS["GCOV"], entry.get("id"), entry["title"], "A",
-                query.longitude, query.latitude, query.chip_pixels]
+    source = science_url(entry)
+    window = [query.longitude, query.latitude, query.chip_pixels]
+    updated = entry.get("updated")
+    identity = [2, source, entry["title"], updated, "A", *window]
     key = sha256(json.dumps(identity).encode()).hexdigest()
-    return cache / (key + ".npz")
+    path = cache / (key + ".npz")
+    if updated is not None or (path.is_file() and path.with_suffix(".json").is_file()):
+        return path
+    # Keep existing planned chips when their recorded archive source still matches.
+    legacy_identity = [1, COLLECTIONS["GCOV"], entry.get("id"), entry["title"], "A", *window]
+    legacy_key = sha256(json.dumps(legacy_identity).encode()).hexdigest()
+    legacy = cache / (legacy_key + ".npz")
+    if legacy.is_file():
+        try:
+            metadata = json.loads(legacy.with_suffix(".json").read_text())
+        except (OSError, ValueError):
+            return path
+        if isinstance(metadata, dict) and metadata.get("source") == source:
+            return legacy
+    return path
 
 
 def chips_cached(query, entries, cache):
     for entry in entries:
-        path = _chip_path(query, entry, cache)
+        try:
+            path = _chip_path(query, entry, cache)
+        except (KeyError, ValueError):
+            return False
         if not path.is_file() or not path.with_suffix(".json").is_file():
             return False
     return bool(entries)
@@ -290,10 +309,10 @@ def measure(query, entries, cache, out, publish, *, cache_only=False, sink=None,
         day = _day(entry)
         row = {"date": day, "sensing_start_utc": entry["time_start"],
                "granule_id": entry.get("id"), "granule_title": entry["title"]}
-        path = _chip_path(query, entry, cache)
         try:
             if read_failures and entry["id"] in read_failures:
                 raise read_failures[entry["id"]]
+            path = _chip_path(query, entry, cache)
             metadata = fetch_chip(entry, query.longitude, query.latitude, path,
                                   pixels=query.chip_pixels, cache_only=cache_only)
             cube = cube_from_chips([path], **cube_options)

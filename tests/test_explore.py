@@ -15,6 +15,12 @@ from surface_dynamics.explore import _compare, measure, parse_request, select, s
 from surface_dynamics.explore_server import ExploreJobs
 
 
+def scene(day, title):
+    return {"id": day, "title": title, "time_start": day + "T00:00:00Z", "links": [
+        {"href": f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/{title}-{day}.h5"},
+    ]}
+
+
 def chip(path, mask, offset=0, date=None):
     np.savez(path, HHHH=np.full((2, 2), 2.0), mask=np.array(mask), epsg=32631,
              x=np.array([500000, 500010]) + offset, y=np.array([10, 0]))
@@ -53,7 +59,7 @@ class ExploreTests(unittest.TestCase):
 
     def test_archive_timeout_preserves_available_observation(self):
         entries = [
-            {"time_start": day + "T00:00:00Z", "title": title}
+            scene(day, title)
             for day, title in (("2026-10-07", "older"), ("2026-10-19", "newer"))
         ]
         updates = []
@@ -85,8 +91,8 @@ class ExploreTests(unittest.TestCase):
 
     def test_coverage_retry_only_runs_when_the_whole_window_is_unusable(self):
         dates = ("2026-10-07", "2026-10-19")
-        primary = [{"id": day, "title": "primary", "time_start": day + "T00:00:00Z"} for day in dates]
-        alternate = [{"id": day, "title": "alternate", "time_start": day + "T00:00:00Z"} for day in dates]
+        primary = [scene(day, "primary") for day in dates]
+        alternate = [scene(day, "alternate") for day in dates]
 
         for primary_outcome in ("masked", "one_valid", "timeout", "both_masked"):
             with self.subTest(primary_outcome=primary_outcome), TemporaryDirectory() as temp:

@@ -82,12 +82,16 @@ def load_range_reader():
 
 def fetch_chip(entry,longitude,latitude,destination,pixels=512,token=None,*,cache_only=False,
                deadline=None, backend="h5py", stats=None):
+    source = science_url(entry)
+    source_updated = entry.get("updated")
     destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
     sidecar=destination.with_suffix('.json')
     if destination.exists() and sidecar.exists():
         meta=json.loads(sidecar.read_text())
         if hashlib.sha256(destination.read_bytes()).hexdigest()!=meta['sha256']:raise ValueError('Cached chip checksum mismatch')
-        if meta.get('title')==entry['title'] and meta.get('query_point')==[longitude,latitude] and meta.get('requested_pixels')==pixels and meta.get('crop_policy')=='point_centered':
+        if (meta.get("source") == source and meta.get("source_updated") == source_updated
+                and meta.get("title") == entry["title"] and meta.get("query_point") == [longitude, latitude]
+                and meta.get("requested_pixels") == pixels and meta.get("crop_policy") == "point_centered"):
             if stats is not None:
                 stats.update(chip_hit=True, http_requests=0, asf_bytes=0, range_batches=0, batch_ranges=0)
             return meta
@@ -102,7 +106,7 @@ def fetch_chip(entry,longitude,latitude,destination,pixels=512,token=None,*,cach
     if stats is not None:
         stats["chip_hit"] = False
         options["stats"] = stats
-    with reader(science_url(entry),token,budget=128*1024*1024,**options) as remote:
+    with reader(source,token,budget=128*1024*1024,**options) as remote:
         with open_file(remote,'r') as h:
             g=h['science/LSAR/GCOV/grids/frequencyA']
             epsg=int(g['projection'][()]);x=g['xCoordinates'][:];y=g['yCoordinates'][:]
@@ -124,7 +128,7 @@ def fetch_chip(entry,longitude,latitude,destination,pixels=512,token=None,*,cach
             params=h['science/LSAR/GCOV/metadata/processingInformation/parameters']
             flags.update({k:text_value(params[k]) for k in ['noiseCorrectionApplied','isFullCovariance'] if k in params})
             freq=float(g['centerFrequency'][()]) if 'centerFrequency' in g else None
-        meta={'date':entry['time_start'][:10],'title':entry['title'],'source':science_url(entry),'epsg':epsg,'slice':[r0,r0+pixels,c0,c0+pixels],'pols':pols,'center_frequency_hz':freq,'flags':flags,'transfer_bytes':remote.transferred,'query_point':[longitude,latitude],'requested_pixels':pixels,'crop_policy':'point_centered'}
+        meta={'date':entry['time_start'][:10],'title':entry['title'],'source':source,'source_updated':source_updated,'epsg':epsg,'slice':[r0,r0+pixels,c0,c0+pixels],'pols':pols,'center_frequency_hz':freq,'flags':flags,'transfer_bytes':remote.transferred,'query_point':[longitude,latitude],'requested_pixels':pixels,'crop_policy':'point_centered'}
     temp=destination.with_name(destination.stem+'.partial.npz')
     np.savez_compressed(temp,**arrays);temp.replace(destination)
     meta['sha256']=hashlib.sha256(destination.read_bytes()).hexdigest()

@@ -170,7 +170,9 @@ class AgricultureEvaluationTests(unittest.TestCase):
 
     def test_worker_shares_temporal_support_and_serves_diagnostic_assets(self):
         data, _, _ = local_step()
-        entries = [{"title": str(day), "time_start": str(day) + "T00:00:00Z"} for day in DATES]
+        entries = [{"title": str(day), "time_start": str(day) + "T00:00:00Z", "links": [
+            {"href": f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/{day}.h5"},
+        ]} for day in DATES]
         query = parse_request({
             "longitude": 3, "latitude": 0, "start_date": str(DATES[0]), "end_date": str(DATES[-1]),
             "baseline_end_date": str(DATES[2]), "lens": "agriculture",

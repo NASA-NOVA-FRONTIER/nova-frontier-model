@@ -65,8 +65,12 @@ def entries_from_scenes(scenes):
 def prefetch_chips(entries, chip_path, fetch, workers=None):
     """Read every scene's window at once; return {granule id: error} for the ones that failed."""
     failures = {}
+
+    def read_entry(entry):
+        return fetch(entry, chip_path(entry))
+
     with ThreadPoolExecutor(max_workers=workers or max(1, len(entries))) as pool:
-        futures = [(entry, pool.submit(fetch, entry, chip_path(entry))) for entry in entries]
+        futures = [(entry, pool.submit(read_entry, entry)) for entry in entries]
         for entry, future in futures:
             try:
                 future.result()
